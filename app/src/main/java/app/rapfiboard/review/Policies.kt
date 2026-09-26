@@ -72,8 +72,8 @@ object Explanation {
             Quality.BRILLIANT -> "충분한 탐색과 별도 전술 근거를 만족한 특별한 수예요."
             Quality.BEST -> "${move.label(size)}는 이 탐색에서 가장 높게 평가된 수예요."
             Quality.MISSED_WIN -> "유리한 평가를 유지할 기회를 놓쳤어요. $recommendation 변화를 확인해보세요. $loss"
-            Quality.BLUNDER,Quality.MISTAKE,Quality.INACCURACY -> "${move.label(size)}보다 $recommendation가 높게 평가됐어요. $loss"
-            else -> "$loss 추천 변화는 $recommendation에서 시작해요."
+            Quality.BLUNDER,Quality.MISTAKE,Quality.INACCURACY -> "${move.label(size)}보다 ${recommendation}가 높게 평가됐어요. $loss"
+            else -> "$loss 추천 변화는 ${recommendation}에서 시작해요."
         } + "\n앱이 엔진 분석을 바탕으로 생성한 설명입니다."
     }
 }
