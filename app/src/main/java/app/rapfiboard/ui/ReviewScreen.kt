@@ -1,0 +1,68 @@
+package app.rapfiboard.ui
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import app.rapfiboard.review.*
+import kotlin.math.roundToInt
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable fun ReviewScreen(vm:AppViewModel,s:AppState) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+        SectionLabel("A better move, next time.","Rapfi Game Review · engine-backed explanations")
+        StudioCard {
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) { listOf("Fast","Balanced","Deep").forEachIndexed { i,label -> FilterChip(selected=s.reviewMode==i,onClick={vm.reviewMode(i)},label={Text(label)}) } }
+            Button(onClick={if(s.busy) vm.stop() else vm.review()},enabled=s.position.stones.isNotEmpty() || s.reviewGame!=null,modifier=Modifier.fillMaxWidth()) { Text(if(s.busy) "Pause review · ${s.review.size} moves" else if(s.review.isNotEmpty()) "Resume / Reanalyze" else "Review this game") }
+            Text("완료된 각 수의 결과를 저장합니다. 같은 분석 조건으로 다시 열면 이어서 진행해요.",style=MaterialTheme.typography.bodySmall)
+        }
+        if(s.review.isNotEmpty()) {
+            Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                listOf(1 to "BLACK",2 to "WHITE").forEach { (color,name) -> StudioCard(Modifier.weight(1f)) {
+                    Text(name,style=MaterialTheme.typography.labelMedium)
+                    val moves=s.review.filter { it.color==color }; val accuracy=AccuracyPolicy().accuracy(moves.mapNotNull { it.loss })
+                    Text(accuracy?.let { "%.1f".format(it) } ?: "—",style=MaterialTheme.typography.displaySmall,fontWeight=FontWeight.Bold)
+                    Text("Accuracy · 앱 기준",style=MaterialTheme.typography.labelSmall)
+                    moves.groupingBy { it.quality }.eachCount().forEach { (q,n) -> Text("${q.symbol} ${q.label}  $n",style=MaterialTheme.typography.bodySmall) }
+                } }
+            }
+            StudioCard {
+                var raw by remember { mutableStateOf(false) }
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) { Text("Evaluation journey",fontWeight=FontWeight.SemiBold); TextButton(onClick={raw=!raw}){Text(if(raw) "Raw eval" else "Score probability")} }
+                val points=s.review.map { r -> if(raw) r.before.candidates.firstOrNull()?.score?.numeric?.let { (if(r.color==1) it else -it).coerceIn(-2000,2000)/4000.0+.5 } else r.before.candidates.firstOrNull()?.winRate?.let { if(r.color==1) it else 1-it } }
+                Canvas(Modifier.fillMaxWidth().height(130.dp).pointerInput(points) { detectTapGestures { p -> vm.reviewSelect(((p.x/size.width)*(points.size-1)).roundToInt().coerceIn(points.indices)) } }) {
+                    drawLine(Color.Gray.copy(alpha=.4f),Offset(0f,size.height/2),Offset(size.width,size.height/2),1f)
+                    for(i in 1 until points.size) { val a=points[i-1];val b=points[i];if(a!=null && b!=null) drawLine(Mint,Offset((i-1)*size.width/(points.size-1).coerceAtLeast(1),(1-a).toFloat()*size.height),Offset(i*size.width/(points.size-1).coerceAtLeast(1),(1-b).toFloat()*size.height),4f) }
+                    s.review.forEachIndexed { i,r -> if((r.loss?:0.0)>.18 && points[i]!=null) drawCircle(Color(0xFFF27B65),5f,Offset(i*size.width/(points.size-1).coerceAtLeast(1),(1-points[i]!!).toFloat()*size.height)) }
+                }
+                val worst=s.review.indices.maxByOrNull { s.review[it].loss ?: 0.0 }; val best=s.review.indices.minByOrNull { s.review[it].loss ?: 1.0 }
+                Row { TextButton(onClick={worst?.let(vm::reviewSelect)}){Text("Biggest loss")};TextButton(onClick={best?.let(vm::reviewSelect)}){Text("Lowest loss")} }
+            }
+            val row=s.review.getOrNull(s.reviewIndex) ?: s.review.first()
+            StudioCard {
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) { Text("◈ RAPFI",fontWeight=FontWeight.Bold,color=MaterialTheme.colorScheme.primary);Text("MOVE ${row.ply+1}",style=MaterialTheme.typography.labelMedium) }
+                Text("${row.quality.symbol} ${row.quality.label}",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold)
+                Text(row.explanation)
+                Text("Best ${percent(row.before.candidates.firstOrNull()?.winRate)} → Played ${percent(row.playedValue)}",style=MaterialTheme.typography.bodyMedium)
+                Row { Button(onClick=vm::showLine){Text("WHY? · Show line")};Spacer(Modifier.width(8.dp));OutlinedButton(onClick=vm::train){Text("Find the move")} }
+                if(s.training) {
+                    Text(when(s.hint){0->"추천 수를 판에서 찾아보세요.";1->row.before.best?.let { "${if(it.x<s.position.size/2) "왼쪽" else "오른쪽"} ${if(it.y<s.position.size/2) "위쪽" else "아래쪽"}을 살펴보세요." } ?: "중앙 주변 후보를 살펴보세요.";2->"후보: "+row.before.candidates.joinToString { it.pv.firstOrNull()?.label(s.position.size) ?: "—" };else->"추천 수: ${row.before.candidates.firstOrNull()?.pv?.firstOrNull()?.label(s.position.size)}"})
+                    TextButton(onClick=vm::hint){Text("Next hint · ${s.hint}/4")}
+                }
+                Text("${if(row.before.engine.classical) "Classical" else "NNUE"} · ${row.before.candidates.firstOrNull()?.nodes ?: 0} nodes · MultiPV ${row.before.config.multiPv}",style=MaterialTheme.typography.labelSmall)
+            }
+            GomokuBoard(s.position,if(s.training) emptyList() else s.analysis?.candidates ?: emptyList(),s.preview.take(s.previewCount),emptySet(),s.numbers,emptyList(),if(s.training) 0 else 3,vm::place)
+            FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) { s.review.forEachIndexed { i,r -> FilterChip(selected=i==s.reviewIndex,onClick={vm.reviewSelect(i)},label={Text("${i+1}. ${r.played.label(s.position.size)} ${r.quality.symbol}")}) } }
+        }
+    }
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "mode": "nnue",
+    "passed": true,
+    "exit": 0
+  },
+  {
+    "mode": "classical",
+    "passed": true,
+    "exit": 0
+  }
+]
