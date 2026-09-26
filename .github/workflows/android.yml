@@ -55,8 +55,8 @@ jobs:
             -validity 10000 \
             -dname "CN=RapfiBoard, OU=CI, O=RapfiBoard, L=Seoul, ST=Seoul, C=KR"
 
-      - name: Build APK and AAB
-        run: python3 scripts/build_apk.py --release all --aab --run-tests
+      - name: Build APK
+        run: python3 scripts/build_apk.py --release all --run-tests
 
       - name: Upload APK files
         uses: actions/upload-artifact@v4
@@ -64,6 +64,5 @@ jobs:
           name: rapfiboard-android-release
           path: |
             dist/*.apk
-            dist/*.aab
             dist/SHA256SUMS
           if-no-files-found: error
