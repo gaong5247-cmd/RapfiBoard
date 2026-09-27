@@ -8,6 +8,41 @@ data class Score(val raw: String) {
     fun negated() = Score(numeric?.let { (-it).toString() } ?: when { raw.startsWith("+M") -> "-"+raw.drop(1); raw.startsWith("-M") -> "+"+raw.drop(1); else -> raw })
 }
 data class Candidate(val index: Int, val score: Score, val winRate: Double?, val drawRate: Double?, val depth: Int, val nodes: Long, val nps: Long, val timeMs: Long, val pv: List<Move>)
+
+/** One child entry returned by Rapfi's Yixin database protocol.
+ * Rapfi itself remains the binary-format authority; Android only consumes the YX protocol.
+ * winRate is normalized to the player choosing this move (the parent position).
+ */
+data class DatabaseMove(
+    val move: Move,
+    val displayLabel: String,
+    val winRate: Double?,
+    val value: Int,
+    val depth: Int,
+    val bound: Int,
+    val hasComment: Boolean,
+    val boardText: String = ""
+)
+
+fun decodeDatabaseLabel(encoded:Int):String {
+    if(encoded <= 0) return ""
+    var v=encoded
+    val chars=ArrayDeque<Char>()
+    while(v!=0) { chars.addFirst((v and 0xff).toChar()); v=v ushr 8 }
+    return chars.joinToString("")
+}
+
+fun databaseWinRate(displayLabel:String):Double? {
+    val label=displayLabel.trim().lowercase()
+    if(label.endsWith("%")) return label.dropLast(1).toIntOrNull()?.coerceIn(0,99)?.div(100.0)
+    // DB child label is from the next player's point of view.
+    return when(label.firstOrNull()) {
+        'l' -> 1.0
+        'w' -> 0.0
+        'd' -> 0.5
+        else -> null
+    }
+}
 sealed interface EngineEvent {
     data class Pv(val candidate: Candidate): EngineEvent
     data class Best(val move: Move): EngineEvent
