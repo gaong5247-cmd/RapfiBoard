@@ -22,9 +22,34 @@ import java.io.File
     val context=LocalContext.current;val scope=rememberCoroutineScope()
     var query by remember { mutableStateOf("") };var byPosition by remember { mutableStateOf(false) };var positionIds by remember { mutableStateOf(emptySet<Long>()) }
     val import=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if(uri!=null) scope.launch { try { val count=withContext(Dispatchers.IO) { val text=context.contentResolver.openInputStream(uri)!!.use { input -> val bytes=input.readLimited(20_000_001); require(bytes.size<=20_000_000); bytes.toString(Charsets.UTF_8) }; vm.database.import(text) };vm.reportError("${count}개 대국을 가져왔어요. 중복 대국은 제외했어요.") } catch(e:Exception) { vm.reportError("가져오기 실패: ${e.message}") } } }
+    val dbFilePicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if(uri!=null) vm.importRapfiDb(uri) }
     val export=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> if(uri!=null) scope.launch { try { withContext(Dispatchers.IO) { val data=vm.database.export();context.contentResolver.openOutputStream(uri)!!.bufferedWriter().use { it.write(data) } } } catch(e:Exception) { vm.reportError("내보내기 실패: ${e.message}") } } }
     val exportGame=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri -> if(uri!=null) scope.launch { try { withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri)!!.bufferedWriter().use { it.write(s.position.encode()) } } } catch(e:Exception) { vm.reportError(e.message) } } }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+        SectionLabel("Rapfi engine database","대용량 Yixin/Rapfi DB는 APK 밖에 저장하고 엔진이 직접 읽습니다.")
+        StudioCard {
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                Column {
+                    Text(if(s.dbInstalled) "기본 DB 설치됨" else "Rapfi DB 미설치",fontWeight=FontWeight.SemiBold)
+                    Text(if(s.dbInstalled) humanBytes(s.dbBytes) else "기본 DB 약 766 MB",style=MaterialTheme.typography.bodySmall)
+                }
+                AssistChip(onClick={},label={Text(if(s.dbInstalled) "READY" else "NOT INSTALLED")})
+            }
+            if(s.dbTransfer.active) {
+                val p=s.dbTransfer.progress.coerceIn(0f,1f)
+                if(s.dbTransfer.total>0) LinearProgressIndicator(progress={p},modifier=Modifier.fillMaxWidth()) else LinearProgressIndicator(Modifier.fillMaxWidth())
+                Text("${s.dbTransfer.label} · ${humanBytes(s.dbTransfer.copied)}${if(s.dbTransfer.total>0) " / "+humanBytes(s.dbTransfer.total) else ""} · ${(p*100).toInt()}%",style=MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick=vm::cancelRapfiDbTransfer){Text("취소")}
+            } else {
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Button(onClick=vm::downloadDefaultRapfiDb){Text(if(s.dbInstalled) "기본 DB 다시 받기" else "기본 DB 다운로드")}
+                    OutlinedButton(onClick={dbFilePicker.launch(arrayOf("*/*"))}){Text("rapfi.db 선택")}
+                }
+                if(s.dbInstalled) TextButton(onClick=vm::deleteRapfiDb){Text("설치된 Rapfi DB 삭제")}
+            }
+            if(s.dbSha.isNotBlank()) Text("SHA-256: ${s.dbSha.take(20)}…",style=MaterialTheme.typography.labelSmall)
+            Text("기본 다운로드: GitHub Release rapfi-db-v1/rapfi.db\nrapfi.db.sha256가 같은 Release에 있으면 다운로드 완료 후 SHA-256을 자동 검증합니다.",style=MaterialTheme.typography.bodySmall)
+        }
         SectionLabel("Your game library","기록을 모으고, 같은 위치의 수를 비교하세요.")
         StudioCard {
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) { Button(onClick={import.launch(arrayOf("*/*"))}) {Text("Import")};OutlinedButton(onClick={export.launch("rapfiboard-database.json")}){Text("DB export")};TextButton(onClick={exportGame.launch("game.rbf")}){Text("Game export")} }
@@ -99,6 +124,12 @@ import java.io.File
         }
     }
     if(showLicense) AlertDialog(onDismissRequest={showLicense=false},title={Text("Open source licenses")},text={Text(license,Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()),style=MaterialTheme.typography.bodySmall)},confirmButton={TextButton(onClick={showLicense=false}){Text("Close")}})
+}
+
+private fun humanBytes(bytes:Long):String {
+    if(bytes<=0) return "0 B"
+    val mb=bytes/1024.0/1024.0
+    return if(mb<1024) "%.1f MB".format(mb) else "%.2f GB".format(mb/1024.0)
 }
 
 private fun java.io.InputStream.readLimited(limit:Int):ByteArray {
