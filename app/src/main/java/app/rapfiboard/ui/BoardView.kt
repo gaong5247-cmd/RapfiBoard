@@ -1,7 +1,9 @@
 package app.rapfiboard.ui
 
 import android.graphics.Paint
-import androidx.compose.animation.core.animateFloatAsState\nimport androidx.compose.animation.core.tween\nimport androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
@@ -21,8 +23,11 @@ import app.rapfiboard.engine.*
 import app.rapfiboard.data.MoveStat
 import kotlin.math.*
 
-@Composable fun GomokuBoard(position:Position,candidates:List<Candidate>,preview:List<Move>,forbidden:Set<Move>,numbers:Boolean,stats:List<MoveStat>,overlay:Int,onPlace:(Move)->Unit,modifier:Modifier=Modifier) {
+@Composable fun GomokuBoard(position:Position,candidates:List<Candidate>,preview:List<Move>,forbidden:Set<Move>,numbers:Boolean,stats:List<MoveStat>,overlay:Int,onPlace:(Move)->Unit,modifier:Modifier=Modifier,reviewMove:Move?=null,reviewStoneColor:Int?=null,reviewSymbol:String?=null,reviewColor:Color=Color.Transparent) {
     var zoom by remember { mutableFloatStateOf(1f) }; var pan by remember { mutableStateOf(Offset.Zero) }
+    var reviewFlash by remember(reviewMove,reviewSymbol) { mutableFloatStateOf(1f) }
+    LaunchedEffect(reviewMove,reviewSymbol) { reviewFlash=1f; kotlinx.coroutines.delay(80); reviewFlash=0f }
+    val reviewFlashAnim by animateFloatAsState(reviewFlash,animationSpec=tween(950),label="reviewFlash")
     val haptic=LocalHapticFeedback.current
     val text=remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign=Paint.Align.CENTER; typeface=android.graphics.Typeface.create("sans-serif-medium",0) } }
     Column(modifier) {
@@ -58,7 +63,23 @@ import kotlin.math.*
                         if(numbers) { text.textSize=step*.42f; text.color=if(s.color==1) android.graphics.Color.WHITE else android.graphics.Color.BLACK; drawContext.canvas.nativeCanvas.drawText("${i+1}",o.x,o.y+step*.15f,text) }
                         else if(i==position.stones.lastIndex) drawCircle(Color(0xFFEF6B5C),step*.1f,o)
                     }
-                    preview.forEachIndexed { i,m -> if(position.at(m)==0) { val o=point(m); val black=(position.side+i)%2==1; drawCircle(if(black) Color.Black.copy(alpha=.45f) else Color.White.copy(alpha=.7f),step*.43f,o); text.color=if(black) android.graphics.Color.WHITE else android.graphics.Color.BLACK; text.textSize=step*.4f; drawContext.canvas.nativeCanvas.drawText("${i+1}",o.x,o.y+step*.14f,text) } }\n                    reviewMove?.let { m ->\n                        val o=point(m)\n                        if(position.at(m)==0 && reviewStoneColor!=null) {\n                            drawCircle(Color.Black.copy(alpha=.18f),step*.46f,o+Offset(1.5f,3f))\n                            val black=reviewStoneColor==1\n                            drawCircle(Brush.radialGradient(if(black) listOf(Color(0xFF4D5155),Color(0xFF13181B)) else listOf(Color.White,Color(0xFFD9DCDD)),o-Offset(step*.13f,step*.14f),step*.7f),step*.44f,o)\n                        }\n                        if(reviewFlashAnim>0.01f) drawCircle(Color(0xFF53E0C1).copy(alpha=.78f*reviewFlashAnim),step*.47f,o)\n                        reviewSymbol?.takeIf { it.isNotBlank() }?.let { symbol ->\n                            val alpha=(1f-reviewFlashAnim).coerceIn(.18f,1f)\n                            val centerBadge=o+Offset(step*.48f,-step*.48f)\n                            drawRoundRect(reviewColor.copy(alpha=alpha),topLeft=centerBadge-Offset(step*.35f,step*.27f),size=androidx.compose.ui.geometry.Size(step*.70f,step*.54f),cornerRadius=androidx.compose.ui.geometry.CornerRadius(step*.16f))\n                            text.textSize=step*.34f; text.color=android.graphics.Color.WHITE\n                            drawContext.canvas.nativeCanvas.drawText(symbol,centerBadge.x,centerBadge.y+step*.12f,text)\n                        }\n                    }
+                    preview.forEachIndexed { i,m -> if(position.at(m)==0) { val o=point(m); val black=(position.side+i)%2==1; drawCircle(if(black) Color.Black.copy(alpha=.45f) else Color.White.copy(alpha=.7f),step*.43f,o); text.color=if(black) android.graphics.Color.WHITE else android.graphics.Color.BLACK; text.textSize=step*.4f; drawContext.canvas.nativeCanvas.drawText("${i+1}",o.x,o.y+step*.14f,text) } }
+                    reviewMove?.let { m ->
+                        val o=point(m)
+                        if(position.at(m)==0 && reviewStoneColor!=null) {
+                            drawCircle(Color.Black.copy(alpha=.18f),step*.46f,o+Offset(1.5f,3f))
+                            val black=reviewStoneColor==1
+                            drawCircle(Brush.radialGradient(if(black) listOf(Color(0xFF4D5155),Color(0xFF13181B)) else listOf(Color.White,Color(0xFFD9DCDD)),o-Offset(step*.13f,step*.14f),step*.7f),step*.44f,o)
+                        }
+                        if(reviewFlashAnim>0.01f) drawCircle(Color(0xFF53E0C1).copy(alpha=.78f*reviewFlashAnim),step*.47f,o)
+                        reviewSymbol?.takeIf { it.isNotBlank() }?.let { symbol ->
+                            val alpha=(1f-reviewFlashAnim).coerceIn(.18f,1f)
+                            val badge=o+Offset(step*.48f,-step*.48f)
+                            drawRoundRect(reviewColor.copy(alpha=alpha),topLeft=badge-Offset(step*.35f,step*.27f),size=androidx.compose.ui.geometry.Size(step*.70f,step*.54f),cornerRadius=androidx.compose.ui.geometry.CornerRadius(step*.16f))
+                            text.textSize=step*.34f; text.color=android.graphics.Color.WHITE
+                            drawContext.canvas.nativeCanvas.drawText(symbol,badge.x,badge.y+step*.12f,text)
+                        }
+                    }
                     candidates.take(if(overlay==99) 10 else overlay).forEachIndexed { i,c -> c.pv.firstOrNull()?.let { m -> if(position.at(m)==0 && m !in preview) {
                         val o=point(m); val color=if(i==0) Color(0xFFD44C43) else Color(0xFF1E7864)
                         drawCircle(color.copy(alpha=if(overlay==99) .25f+.6f*(c.winRate ?: .5).toFloat() else .93f),step*.43f,o)
