@@ -2,6 +2,7 @@ package app.rapfiboard.ui
 
 import android.app.Application
 import android.os.Build
+import android.net.Uri
 import android.os.PowerManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -13,11 +14,12 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
 
-data class AppState(val position:Position=Position(),val tab:Int=0,val busy:Boolean=false,val status:String="Ready to explore",val error:String?=null,val analysis:Analysis?=null,val preview:List<Move> = emptyList(),val previewCount:Int=0,val engine:EngineSpec=EngineSpec(),val config:AnalysisConfig=AnalysisConfig(),val review:List<ReviewMove> = emptyList(),val reviewIndex:Int=0,val reviewMode:Int=1,val stats:List<MoveStat> = emptyList(),val rapfiDb:List<DatabaseMove> = emptyList(),val editor:Int=-1,val overlay:Int=3,val numbers:Boolean=true,val dark:Boolean=true,val training:Boolean=false,val hint:Int=0,val warm:Boolean=false,val networks:List<String> = emptyList(),val reviewGame:Position?=null,val hasSavedReview:Boolean=false)
+data class AppState(val position:Position=Position(),val tab:Int=0,val busy:Boolean=false,val status:String="Ready to explore",val error:String?=null,val analysis:Analysis?=null,val preview:List<Move> = emptyList(),val previewCount:Int=0,val engine:EngineSpec=EngineSpec(),val config:AnalysisConfig=AnalysisConfig(),val review:List<ReviewMove> = emptyList(),val reviewIndex:Int=0,val reviewMode:Int=1,val stats:List<MoveStat> = emptyList(),val rapfiDb:List<DatabaseMove> = emptyList(),val dbInstalled:Boolean=false,val dbBytes:Long=0L,val dbSha:String="",val dbTransfer:RapfiDbTransfer=RapfiDbTransfer(),val editor:Int=-1,val overlay:Int=3,val numbers:Boolean=true,val dark:Boolean=true,val training:Boolean=false,val hint:Int=0,val warm:Boolean=false,val networks:List<String> = emptyList(),val reviewGame:Position?=null,val hasSavedReview:Boolean=false)
 class AppViewModel(application:Application):AndroidViewModel(application) {
     private val prefs=application.getSharedPreferences("session",0)
     private val engineManager=EngineManager(application)
     private val db=AppDatabase.open(application)
+    private val rapfiDatabase=RapfiDatabaseManager(application)
     val database=DatabaseRepository(db)
     private val repository=AnalysisRepository(engineManager,db.dao())
     private val reviewer=ReviewRepository(repository,db.dao())
@@ -28,12 +30,14 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
     val benchmarks=database.dao.benchmarks().stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     private var work:Job?=null
     private var databaseWork:Job?=null
+    private var dbTransferWork:Job?=null
     private val undo=ArrayDeque<Position>()
     init {
         val encoded=prefs.getString("position",null)
         try { if(encoded!=null) _state.update { it.copy(position=Position.decode(encoded),tab=prefs.getInt("tab",0).coerceIn(0,4),dark=prefs.getBoolean("dark",true),hasSavedReview=prefs.contains("lastReviewGame")) } else _state.update { it.copy(hasSavedReview=prefs.contains("lastReviewGame")) } }
         catch(e:Exception) { _state.update { it.copy(error="이전 세션을 복원하지 못했어요: ${e.message}") } }
         refreshNetworks()
+        refreshRapfiDbInfo()
     }
     private fun persist() { prefs.edit().putString("position",state.value.position.encode()).putInt("tab",state.value.tab).putBoolean("dark",state.value.dark).apply() }
     private fun engineForPosition(p:Position,current:EngineSpec=state.value.engine):EngineSpec {
@@ -68,6 +72,56 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
             } catch(e:CancellationException) { throw e }
             catch(e:Exception) { if(state.value.overlay==0) reportError(e.message ?: "Rapfi database query failed") }
         }
+    }
+
+    private fun refreshRapfiDbInfo() {
+        viewModelScope.launch {
+            try {
+                val info=rapfiDatabase.info()
+                _state.update { it.copy(dbInstalled=info.installed,dbBytes=info.bytes) }
+            } catch(_:Exception) {}
+        }
+    }
+    fun downloadDefaultRapfiDb() {
+        stop()
+        dbTransferWork=viewModelScope.launch {
+            _state.update { it.copy(dbTransfer=RapfiDbTransfer(true,0f,0L,0L,"기본 Rapfi DB 준비 중"),error=null) }
+            try {
+                val info=rapfiDatabase.downloadDefault { progress -> _state.update { it.copy(dbTransfer=progress) } }
+                engineManager.stop()
+                _state.update { it.copy(dbInstalled=true,dbBytes=info.bytes,dbSha=info.sha256,dbTransfer=RapfiDbTransfer(false,1f,info.bytes,info.bytes,"설치 완료"),status="Rapfi DB 설치 완료") }
+                if(state.value.overlay==0) refreshRapfiDatabase(state.value.position)
+            } catch(e:CancellationException) { throw e }
+            catch(e:Exception) { _state.update { it.copy(dbTransfer=RapfiDbTransfer(),error="Rapfi DB 다운로드 실패: ${e.message}") } }
+        }
+    }
+    fun importRapfiDb(uri:Uri) {
+        stop()
+        dbTransferWork=viewModelScope.launch {
+            _state.update { it.copy(dbTransfer=RapfiDbTransfer(true,0f,0L,0L,"Rapfi DB 가져오는 중"),error=null) }
+            try {
+                val info=rapfiDatabase.importUri(uri) { progress -> _state.update { it.copy(dbTransfer=progress) } }
+                engineManager.stop()
+                _state.update { it.copy(dbInstalled=true,dbBytes=info.bytes,dbSha=info.sha256,dbTransfer=RapfiDbTransfer(false,1f,info.bytes,info.bytes,"설치 완료"),status="Rapfi DB 가져오기 완료") }
+                if(state.value.overlay==0) refreshRapfiDatabase(state.value.position)
+            } catch(e:CancellationException) { throw e }
+            catch(e:Exception) { _state.update { it.copy(dbTransfer=RapfiDbTransfer(),error="Rapfi DB 가져오기 실패: ${e.message}") } }
+        }
+    }
+    fun deleteRapfiDb() {
+        stop()
+        dbTransferWork=viewModelScope.launch {
+            try {
+                rapfiDatabase.delete()
+                engineManager.stop()
+                _state.update { it.copy(dbInstalled=false,dbBytes=0L,dbSha="",dbTransfer=RapfiDbTransfer(),rapfiDb=emptyList(),status="Rapfi DB 삭제 완료") }
+            } catch(e:Exception) { reportError("Rapfi DB 삭제 실패: ${e.message}") }
+        }
+    }
+    fun cancelRapfiDbTransfer() {
+        dbTransferWork?.cancel()
+        dbTransferWork=null
+        _state.update { it.copy(dbTransfer=RapfiDbTransfer()) }
     }
 
     fun editor(mode:Int) { _state.update { it.copy(editor=mode) } }
@@ -246,5 +300,5 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
         catch(e:Exception) { file.delete(); throw IllegalArgumentException("호환되지 않거나 손상된 mix9svq network예요.",e) }
         refreshNetworks(); chooseNetwork(id)
     }
-    override fun onCleared() { databaseWork?.cancel(); engineManager.close(); db.close() }
+    override fun onCleared() { databaseWork?.cancel(); dbTransferWork?.cancel(); engineManager.close(); db.close() }
 }
