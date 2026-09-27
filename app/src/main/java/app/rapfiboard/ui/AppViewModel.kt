@@ -35,9 +35,17 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
         refreshNetworks()
     }
     private fun persist() { prefs.edit().putString("position",state.value.position.encode()).putInt("tab",state.value.tab).putBoolean("dark",state.value.dark).apply() }
+    private fun engineForPosition(p:Position,current:EngineSpec=state.value.engine):EngineSpec {
+        if(current.classical || current.executable!=null || !current.rapfiExtensions) return current
+        return when(p.rule) {
+            Rule.FREESTYLE -> current.copy(network=prefs.getString("freestyleNetwork",current.network) ?: "default",classical=false)
+            Rule.STANDARD,Rule.RENJU -> current.copy(network="default",classical=false)
+        }
+    }
     private fun setPosition(p:Position,remember:Boolean=true) {
         stop(); if(remember) undo.addLast(state.value.position)
-        _state.update { it.copy(position=p,analysis=null,preview=emptyList(),previewCount=0,training=false) }; persist()
+        val engine=engineForPosition(p)
+        _state.update { it.copy(position=p,engine=engine,analysis=null,preview=emptyList(),previewCount=0,training=false) }; persist()
         viewModelScope.launch { try { val stats=database.dao.stats(p.key()); if(state.value.position==p) _state.update { it.copy(stats=stats) } } catch(e:Exception) { reportError("Database: ${e.message}") } }
     }
     fun tab(index:Int) { _state.update { it.copy(tab=index) }; persist() }
@@ -102,7 +110,13 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
     fun stop() { work?.cancel(); engineManager.stop(); _state.update { it.copy(busy=false) } }
     fun restart() { stop(); _state.update { it.copy(status="엔진 재시작 준비 완료",analysis=null) } }
     fun chooseEngine(classical:Boolean) { stop(); _state.update { it.copy(engine=EngineSpec(classical=classical),analysis=null) } }
-    fun chooseNetwork(id:String) { stop(); _state.update { it.copy(engine=it.engine.copy(network=id,classical=false),analysis=null) } }
+    fun chooseNetwork(id:String) {
+        stop()
+        prefs.edit().putString("freestyleNetwork",id).apply()
+        val p=state.value.position
+        val selected=if(p.rule==Rule.FREESTYLE) state.value.engine.copy(network=id,classical=false) else state.value.engine.copy(network="default",classical=false)
+        _state.update { it.copy(engine=selected,analysis=null) }
+    }
     fun config(c:AnalysisConfig) { _state.update { it.copy(config=c) } }
     fun preview(line:List<Move>,count:Int) { _state.update { it.copy(preview=line,previewCount=count.coerceIn(0,line.size)) } }
     fun applyPv(line:List<Move>,count:Int) {
@@ -114,11 +128,12 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
     fun reviewMode(mode:Int) { _state.update { it.copy(reviewMode=mode) } }
     private fun startReview(game:Position) {
         val s=state.value
+        val reviewEngine=engineForPosition(game,s.engine)
         val config=when(s.reviewMode) { 0 -> budget().copy(timeMs=300,nodes=30000,multiPv=3); 2 -> budget().copy(timeMs=8000,nodes=2000000,multiPv=5); else -> budget().copy(timeMs=1500,nodes=200000,multiPv=3) }
         prefs.edit().putString("lastReviewGame",game.encode()).apply()
-        _state.update { it.copy(tab=2,reviewGame=game,review=emptyList(),reviewIndex=0,preview=emptyList(),previewCount=0,training=false,hasSavedReview=true) }
+        _state.update { it.copy(tab=2,position=game,engine=reviewEngine,reviewGame=game,review=emptyList(),reviewIndex=0,preview=emptyList(),previewCount=0,training=false,hasSavedReview=true,status="Review · ${game.rule} NNUE") }
         launchWork("Reviewing game") {
-            reviewer.review(game,config,s.engine) { rows -> _state.update { it.copy(review=rows,status="Review ${rows.size}/${game.stones.size}") } }
+            reviewer.review(game,config,reviewEngine) { rows -> _state.update { it.copy(review=rows,status="Review ${rows.size}/${game.stones.size} · ${game.rule}") } }
             if(state.value.review.isNotEmpty()) reviewSelect(0)
         }
     }
