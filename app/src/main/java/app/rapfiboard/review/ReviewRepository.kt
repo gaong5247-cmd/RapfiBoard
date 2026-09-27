@@ -34,8 +34,13 @@ class ReviewRepository(private val analysis:AnalysisRepository, private val dao:
                     }
                 }
                 val loss=best.winRate?.let { b -> playedValue?.let { (b-it).coerceAtLeast(0.0) } }
-                val quality=classifier.classify(ReviewEvidence(best,played,playedValue,before.candidates,forbidden=forbidden))
-                val move=ReviewMove(i,p.side,played,before,after,playedValue,loss,quality,Explanation.explain(quality,played,best,playedValue,p.size))
+                val second=before.candidates.filter { it.pv.firstOrNull()!=best.pv.firstOrNull() }.mapNotNull { it.winRate }.maxOrNull()
+                val gap=if(best.winRate!=null && second!=null) (best.winRate-second).coerceAtLeast(0.0) else null
+                val stable=before.completed && best.depth>=12 && (before.candidates.size>=2 || best.score.mate!=null)
+                val tactical=best.score.mate!=null || (gap ?: 0.0)>=.30
+                val quality=classifier.classify(ReviewEvidence(best,played,playedValue,before.candidates,forbidden=forbidden,stable=stable,independentTacticalEvidence=tactical))
+                val draw=assessDraw(before)
+                val move=ReviewMove(i,p.side,played,before,after,playedValue,loss,quality,Explanation.explain(quality,played,best,playedValue,p.size),draw?.confidence,draw?.reason)
                 dao.putReview(ReviewEntity(gameKey,configKey,i,encode(move)))
                 result+=move; onMove(result.toList())
                 if(forbidden) return result
@@ -43,9 +48,22 @@ class ReviewRepository(private val analysis:AnalysisRepository, private val dao:
         }
         return result
     }
-    private fun encode(m:ReviewMove)=JSONObject().put("ply",m.ply).put("color",m.color).put("played",m.played.wire()).put("before",AnalysisCodec.encode(m.before)).put("after",m.after?.let { AnalysisCodec.encode(it) }).put("value",m.playedValue).put("loss",m.loss).put("quality",m.quality.name).put("explanation",m.explanation).put("drawConfidence",m.drawConfidence).put("drawReason",m.drawReason).toString()
+    private fun encode(m:ReviewMove)=JSONObject()
+        .put("ply",m.ply).put("color",m.color).put("played",m.played.wire())
+        .put("before",AnalysisCodec.encode(m.before)).put("after",m.after?.let { AnalysisCodec.encode(it) })
+        .put("value",m.playedValue).put("loss",m.loss).put("quality",m.quality.name)
+        .put("explanation",m.explanation).put("drawConfidence",m.drawConfidence).put("drawReason",m.drawReason).toString()
     private fun decode(s:String):ReviewMove {
         val o=JSONObject(s)
-        return ReviewMove(o.getInt("ply"),o.getInt("color"),Move.parse(o.getString("played"),22)!!,AnalysisCodec.decode(o.getString("before")),if(o.has("after") && !o.isNull("after")) AnalysisCodec.decode(o.getString("after")) else null,if(o.has("value") && !o.isNull("value")) o.getDouble("value") else null,if(o.has("loss") && !o.isNull("loss")) o.getDouble("loss") else null,Quality.valueOf(o.getString("quality")),o.getString("explanation"),if(o.has("drawConfidence") && !o.isNull("drawConfidence")) o.getDouble("drawConfidence") else null,if(o.has("drawReason") && !o.isNull("drawReason")) o.getString("drawReason") else null)
+        return ReviewMove(
+            o.getInt("ply"),o.getInt("color"),Move.parse(o.getString("played"),22)!!,
+            AnalysisCodec.decode(o.getString("before")),
+            if(o.has("after") && !o.isNull("after")) AnalysisCodec.decode(o.getString("after")) else null,
+            if(o.has("value") && !o.isNull("value")) o.getDouble("value") else null,
+            if(o.has("loss") && !o.isNull("loss")) o.getDouble("loss") else null,
+            Quality.valueOf(o.getString("quality")),o.getString("explanation"),
+            if(o.has("drawConfidence") && !o.isNull("drawConfidence")) o.getDouble("drawConfidence") else null,
+            if(o.has("drawReason") && !o.isNull("drawReason")) o.getString("drawReason") else null
+        )
     }
 }
