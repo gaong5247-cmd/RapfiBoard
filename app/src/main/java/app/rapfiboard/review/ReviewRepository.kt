@@ -20,7 +20,11 @@ class ReviewRepository(private val analysis:AnalysisRepository, private val dao:
             } ?: run {
                 val p=game.prefix(i); val played=game.stones[i].move
                 val before=analysis.analyze(p,config,engine)
-                val best=before.candidates.firstOrNull() ?: error("이 엔진은 리뷰에 필요한 평가와 PV를 제공하지 않아요.")
+                val best=before.candidates.firstOrNull() ?: before.best?.let { move ->
+                    // Rapfi intentionally returns only the center move on an empty board, without search/PV/eval.
+                    // Keep review running with an unscored synthetic candidate instead of treating that as an engine failure.
+                    Candidate(0,Score("0"),null,null,0,0,0,0,listOf(move))
+                } ?: error("이 엔진은 리뷰에 필요한 평가와 PV를 제공하지 않아요.")
                 val forbidden=played in before.forbidden
                 val next=game.prefix(i+1)
                 var after:Analysis?=null
@@ -38,7 +42,9 @@ class ReviewRepository(private val analysis:AnalysisRepository, private val dao:
                 val gap=if(best.winRate!=null && second!=null) (best.winRate-second).coerceAtLeast(0.0) else null
                 val stable=before.completed && best.depth>=12 && (before.candidates.size>=2 || best.score.mate!=null)
                 val tactical=best.score.mate!=null || (gap ?: 0.0)>=.30
-                val quality=classifier.classify(ReviewEvidence(best,played,playedValue,before.candidates,forbidden=forbidden,stable=stable,independentTacticalEvidence=tactical))
+                val quality=if(before.candidates.isEmpty() && p.stones.isEmpty()) {
+                    if(played==best.pv.firstOrNull()) Quality.BEST else Quality.GOOD
+                } else classifier.classify(ReviewEvidence(best,played,playedValue,before.candidates,forbidden=forbidden,stable=stable,independentTacticalEvidence=tactical))
                 val draw=assessDraw(before)
                 val move=ReviewMove(i,p.side,played,before,after,playedValue,loss,quality,Explanation.explain(quality,played,best,playedValue,p.size),draw?.confidence,draw?.reason)
                 dao.putReview(ReviewEntity(gameKey,configKey,i,encode(move)))
