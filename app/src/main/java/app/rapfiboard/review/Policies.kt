@@ -67,7 +67,7 @@ fun assessDraw(a:Analysis):DrawAssessment? {
     }
     val raw=best.score.numeric ?: return null
     val rates=a.candidates.take(3).mapNotNull { it.winRate }
-    if(best.depth>=18 && abs(raw)<=20 && rates.size>=2 && rates.all { it in .46..54 }) {
+    if(best.depth>=18 && abs(raw)<=20 && rates.size>=2 && rates.all { it in .46..0.54 }) {
         val spread=(rates.maxOrNull()!!-rates.minOrNull()!!).coerceAtLeast(0.0)
         val confidence=(.90 + .08*(1.0-(spread/.08).coerceIn(0.0,1.0))).coerceIn(.90,.98)
         return DrawAssessment(confidence,"Strong draw signal","depth "+best.depth+", raw eval "+raw+", top candidates clustered near 50%")
