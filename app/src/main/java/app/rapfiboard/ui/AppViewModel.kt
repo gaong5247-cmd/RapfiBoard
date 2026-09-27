@@ -13,7 +13,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
 
-data class AppState(val position:Position=Position(),val tab:Int=0,val busy:Boolean=false,val status:String="Ready to explore",val error:String?=null,val analysis:Analysis?=null,val preview:List<Move> = emptyList(),val previewCount:Int=0,val engine:EngineSpec=EngineSpec(),val config:AnalysisConfig=AnalysisConfig(),val review:List<ReviewMove> = emptyList(),val reviewIndex:Int=0,val reviewMode:Int=1,val stats:List<MoveStat> = emptyList(),val editor:Int=-1,val overlay:Int=3,val numbers:Boolean=true,val dark:Boolean=true,val training:Boolean=false,val hint:Int=0,val warm:Boolean=false,val networks:List<String> = emptyList(),val reviewGame:Position?=null,val hasSavedReview:Boolean=false)
+data class AppState(val position:Position=Position(),val tab:Int=0,val busy:Boolean=false,val status:String="Ready to explore",val error:String?=null,val analysis:Analysis?=null,val preview:List<Move> = emptyList(),val previewCount:Int=0,val engine:EngineSpec=EngineSpec(),val config:AnalysisConfig=AnalysisConfig(),val review:List<ReviewMove> = emptyList(),val reviewIndex:Int=0,val reviewMode:Int=1,val stats:List<MoveStat> = emptyList(),val rapfiDb:List<DatabaseMove> = emptyList(),val editor:Int=-1,val overlay:Int=3,val numbers:Boolean=true,val dark:Boolean=true,val training:Boolean=false,val hint:Int=0,val warm:Boolean=false,val networks:List<String> = emptyList(),val reviewGame:Position?=null,val hasSavedReview:Boolean=false)
 class AppViewModel(application:Application):AndroidViewModel(application) {
     private val prefs=application.getSharedPreferences("session",0)
     private val engineManager=EngineManager(application)
@@ -27,6 +27,7 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
     val bookmarks=database.dao.bookmarks().stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     val benchmarks=database.dao.benchmarks().stateIn(viewModelScope,SharingStarted.WhileSubscribed(5000),emptyList())
     private var work:Job?=null
+    private var databaseWork:Job?=null
     private val undo=ArrayDeque<Position>()
     init {
         val encoded=prefs.getString("position",null)
@@ -45,14 +46,30 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
     private fun setPosition(p:Position,remember:Boolean=true) {
         stop(); if(remember) undo.addLast(state.value.position)
         val engine=engineForPosition(p)
-        _state.update { it.copy(position=p,engine=engine,analysis=null,preview=emptyList(),previewCount=0,training=false) }; persist()
+        _state.update { it.copy(position=p,engine=engine,analysis=null,preview=emptyList(),previewCount=0,training=false,rapfiDb=emptyList()) }; persist()
         viewModelScope.launch { try { val stats=database.dao.stats(p.key()); if(state.value.position==p) _state.update { it.copy(stats=stats) } } catch(e:Exception) { reportError("Database: ${e.message}") } }
+        if(state.value.overlay==0) refreshRapfiDatabase(p)
     }
     fun tab(index:Int) { _state.update { it.copy(tab=index) }; persist() }
     fun reportError(message:String?) { _state.update { it.copy(error=message) } }
     fun dark() { _state.update { it.copy(dark=!it.dark) }; persist() }
     fun numbers() { _state.update { it.copy(numbers=!it.numbers) } }
-    fun overlay(n:Int) { _state.update { it.copy(overlay=n) } }
+    fun overlay(n:Int) {
+        _state.update { it.copy(overlay=n) }
+        if(n==0) refreshRapfiDatabase(state.value.position)
+    }
+    private fun refreshRapfiDatabase(position:Position) {
+        databaseWork?.cancel()
+        val spec=state.value.engine
+        databaseWork=viewModelScope.launch {
+            try {
+                val entries=engineManager.queryDatabase(position,spec)
+                if(state.value.position==position && state.value.engine==spec) _state.update { it.copy(rapfiDb=entries) }
+            } catch(e:CancellationException) { throw e }
+            catch(e:Exception) { if(state.value.overlay==0) reportError(e.message ?: "Rapfi database query failed") }
+        }
+    }
+
     fun editor(mode:Int) { _state.update { it.copy(editor=mode) } }
     fun newGame(rule:Rule=state.value.position.rule,size:Int=15) { setPosition(Position(size,rule)); _state.update { it.copy(review=emptyList(),reviewGame=null) } }
     fun undo() { if(undo.isNotEmpty()) setPosition(undo.removeLast(),false) else setPosition(state.value.position.undo(),false) }
@@ -107,15 +124,16 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
             if(play) { val m=a.best ?: kotlin.error("엔진이 착수를 반환하지 않았어요."); undo.addLast(s.position); _state.update { it.copy(position=s.position.play(m),analysis=null) }; persist() }
         }
     }
-    fun stop() { work?.cancel(); engineManager.stop(); _state.update { it.copy(busy=false) } }
+    fun stop() { work?.cancel(); databaseWork?.cancel(); engineManager.stop(); _state.update { it.copy(busy=false) } }
     fun restart() { stop(); _state.update { it.copy(status="엔진 재시작 준비 완료",analysis=null) } }
-    fun chooseEngine(classical:Boolean) { stop(); _state.update { it.copy(engine=EngineSpec(classical=classical),analysis=null) } }
+    fun chooseEngine(classical:Boolean) { stop(); _state.update { it.copy(engine=EngineSpec(classical=classical),analysis=null,rapfiDb=emptyList()) }; if(state.value.overlay==0) refreshRapfiDatabase(state.value.position) }
     fun chooseNetwork(id:String) {
         stop()
         prefs.edit().putString("freestyleNetwork",id).apply()
         val p=state.value.position
         val selected=if(p.rule==Rule.FREESTYLE) state.value.engine.copy(network=id,classical=false) else state.value.engine.copy(network="default",classical=false)
-        _state.update { it.copy(engine=selected,analysis=null) }
+        _state.update { it.copy(engine=selected,analysis=null,rapfiDb=emptyList()) }
+        if(state.value.overlay==0) refreshRapfiDatabase(state.value.position)
     }
     fun config(c:AnalysisConfig) { _state.update { it.copy(config=c) } }
     fun preview(line:List<Move>,count:Int) { _state.update { it.copy(preview=line,previewCount=count.coerceIn(0,line.size)) } }
@@ -228,5 +246,5 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
         catch(e:Exception) { file.delete(); throw IllegalArgumentException("호환되지 않거나 손상된 mix9svq network예요.",e) }
         refreshNetworks(); chooseNetwork(id)
     }
-    override fun onCleared() { engineManager.close(); db.close() }
+    override fun onCleared() { databaseWork?.cancel(); engineManager.close(); db.close() }
 }
