@@ -32,9 +32,9 @@ class LogisticModel(private val scale:Double):WdlModel {
 fun Candidate.probability() = Probability(winRate,drawRate?.let { d -> winRate?.takeIf { it+d<=1.000001 }?.let { w -> Wdl(w,d,(1-w-d).coerceAtLeast(0.0),"Engine reported") } },"Rapfi score conversion · not calibrated")
 
 enum class Quality(val label:String,val symbol:String) {
-    BRILLIANT("Brilliant","!!"), GREAT("Great","!"), BEST("Best","★"), EXCELLENT("Excellent","✓"), GOOD("Good","•"), THEORY("Database / Theory","▤"), INACCURACY("Inaccuracy","?!"), MISTAKE("Mistake","?"), BLUNDER("Blunder","??"), FORCED("Forced","→"), MISSED_WIN("Missed Win","!↘"), FORBIDDEN("Forbidden","×")
+    BRILLIANT("Brilliant","!!"), GREAT("Great","!"), BEST("Best","★"), EXCELLENT("Excellent","✓"), GOOD("Okay","•"), THEORY("Database / Theory","▤"), INACCURACY("Inaccuracy","?!"), MISTAKE("Mistake","?"), BLUNDER("Blunder","??"), FORCED("Forced","→"), MISSED_WIN("Missed Win","MW"), FORBIDDEN("Forbidden","×")
 }
-data class ReviewPolicy(val excellentLoss:Double=.01,val goodLoss:Double=.03,val inaccuracyLoss:Double=.08,val mistakeLoss:Double=.18,val winning:Double=.95,val missedWin:Double=.60,val greatGap:Double=.25,val minimumDepth:Int=12,val accuracyScale:Double=4.0)
+data class ReviewPolicy(val excellentLoss:Double=.015,val goodLoss:Double=.04,val inaccuracyLoss:Double=.09,val mistakeLoss:Double=.20,val winning:Double=.94,val missedWin:Double=.58,val greatGap:Double=.18,val brilliantGap:Double=.30,val minimumDepth:Int=12,val brilliantDepth:Int=16,val accuracyScale:Double=4.0)
 data class ReviewEvidence(val best:Candidate,val played:Move,val playedValue:Double?,val alternatives:List<Candidate>,val forbidden:Boolean=false,val legalMoves:Int?=null,val theory:Boolean=false,val independentTacticalEvidence:Boolean=false,val stable:Boolean=false)
 class ReviewClassifier(private val p:ReviewPolicy=ReviewPolicy()) {
     fun classify(e:ReviewEvidence):Quality {
@@ -59,19 +59,19 @@ class ReviewClassifier(private val p:ReviewPolicy=ReviewPolicy()) {
         return Quality.GOOD
     }
 }
-class AccuracyPolicy(private val policy:ReviewPolicy=ReviewPolicy()) {
+data class DrawAssessment(val confidence:Double,val label:String,val reason:String)\n\n/** Conservative draw detector. Engine DRAWRATE has priority; otherwise require deep, near-zero, clustered candidates. */\nfun assessDraw(a:Analysis):DrawAssessment? {\n    val best=a.candidates.firstOrNull() ?: return null\n    best.drawRate?.let { d ->\n        if(d>=.98) return DrawAssessment(d,"Very likely draw","Rapfi draw rate "+(d*100).roundToInt()+"%")\n        if(d>=.90) return DrawAssessment(d,"Drawish","Rapfi draw rate "+(d*100).roundToInt()+"%")\n    }\n    val raw=best.score.numeric ?: return null\n    val rates=a.candidates.take(3).mapNotNull { it.winRate }\n    if(best.depth>=18 && abs(raw)<=20 && rates.size>=2 && rates.all { it in .46..54 }) {\n        val spread=(rates.maxOrNull()!!-rates.minOrNull()!!).coerceAtLeast(0.0)\n        val confidence=(.90 + .08*(1.0-(spread/.08).coerceIn(0.0,1.0))).coerceIn(.90,.98)\n        return DrawAssessment(confidence,"Strong draw signal","depth "+best.depth+", raw eval "+raw+", top candidates clustered near 50%")\n    }\n    return null\n}\nclass AccuracyPolicy(private val policy:ReviewPolicy=ReviewPolicy()) {
     fun accuracy(losses:List<Double>):Double? = if(losses.isEmpty()) null else losses.map { 100*exp(-policy.accuracyScale*it.coerceIn(0.0,1.0)) }.average()
 }
-data class ReviewMove(val ply:Int,val color:Int,val played:Move,val before:Analysis,val after:Analysis?,val playedValue:Double?,val loss:Double?,val quality:Quality,val explanation:String)
+data class ReviewMove(val ply:Int,val color:Int,val played:Move,val before:Analysis,val after:Analysis?,val playedValue:Double?,val loss:Double?,val quality:Quality,val explanation:String,val drawConfidence:Double?=null,val drawReason:String?=null)
 object Explanation {
     fun explain(q:Quality,move:Move,best:Candidate,played:Double?,size:Int):String {
         val recommendation=best.pv.firstOrNull()?.label(size) ?: "—"
         val loss=if(played!=null && best.winRate!=null) "평가 변환값 손실 %.1f%%p.".format(100*(best.winRate-played).coerceAtLeast(0.0)) else "확률 비교 자료가 충분하지 않아요."
         return when(q) {
             Quality.FORBIDDEN -> "Rapfi가 이 위치를 금수로 판정했어요."
-            Quality.BRILLIANT -> "충분한 탐색과 별도 전술 근거를 만족한 특별한 수예요."
-            Quality.BEST -> "${move.label(size)}는 이 탐색에서 가장 높게 평가된 수예요."
-            Quality.MISSED_WIN -> "유리한 평가를 유지할 기회를 놓쳤어요. $recommendation 변화를 확인해보세요. $loss"
+            Quality.BRILLIANT -> "다른 후보와 큰 차이가 나는 유일한 강수이고, 깊은 탐색에서도 전술 근거가 유지됐어요."
+            Quality.GREAT -> "최선 후보와 차선 후보의 격차가 커서 찾기 어려운 좋은 수예요."\n            Quality.BEST -> "${move.label(size)}는 이 탐색에서 가장 높게 평가된 수예요."
+            Quality.MISSED_WIN -> "거의 이기는 위치였지만 승리 우세를 크게 놓쳤어요. $recommendation 변화를 확인해보세요. $loss"
             Quality.BLUNDER,Quality.MISTAKE,Quality.INACCURACY -> "${move.label(size)}보다 ${recommendation}가 높게 평가됐어요. $loss"
             else -> "$loss 추천 변화는 ${recommendation}에서 시작해요."
         } + "\n앱이 엔진 분석을 바탕으로 생성한 설명입니다."
