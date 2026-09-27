@@ -38,7 +38,12 @@ private fun qualityColor(q:Quality)=when(q) {
         StudioCard {
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) { listOf("Fast","Balanced","Deep").forEachIndexed { i,label -> FilterChip(selected=s.reviewMode==i,onClick={vm.reviewMode(i)},label={Text(label)}) } }
             Button(onClick={if(s.busy) vm.stop() else vm.review()},enabled=s.position.stones.isNotEmpty() || s.reviewGame!=null,modifier=Modifier.fillMaxWidth()) { Text(if(s.busy) "Pause review · ${s.review.size} moves" else if(s.review.isNotEmpty()) "Resume / Reanalyze" else "Review this game") }
-            Text("완료된 각 수의 결과를 저장합니다. 같은 분석 조건으로 다시 열면 이어서 진행해요.",style=MaterialTheme.typography.bodySmall)
+            if(s.reviewGame!=null || s.review.isNotEmpty()) {
+                OutlinedButton(onClick=vm::stopReview,modifier=Modifier.fillMaxWidth()) { Text("리뷰 그만하기") }
+            } else if(s.hasSavedReview) {
+                OutlinedButton(onClick=vm::resumeLastReview,modifier=Modifier.fillMaxWidth()) { Text("지난 리뷰 이어보기") }
+            }
+            Text("완료된 각 수의 결과를 저장합니다. 리뷰를 그만해도 나중에 같은 대국을 이어서 분석할 수 있어요.",style=MaterialTheme.typography.bodySmall)
         }
         if(s.review.isNotEmpty()) {
             Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -85,6 +90,18 @@ private fun qualityColor(q:Quality)=when(q) {
                 Text("${if(row.before.engine.classical) "Classical" else "NNUE"} · ${row.before.candidates.firstOrNull()?.nodes ?: 0} nodes · MultiPV ${row.before.config.multiPv}",style=MaterialTheme.typography.labelSmall)
             }
             GomokuBoard(s.position,if(s.training) emptyList() else s.analysis?.candidates ?: emptyList(),s.preview.take(s.previewCount),emptySet(),s.numbers,emptyList(),if(s.training) 0 else 3,vm::place,reviewMove=row.played,reviewStoneColor=row.color,reviewSymbol=row.quality.symbol,reviewColor=qualityColor(row.quality))
+            if(!s.busy) {
+                StudioCard {
+                    Text("Review navigation · ${s.reviewIndex+1}/${s.review.size}",style=MaterialTheme.typography.labelMedium)
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
+                        FilledTonalButton(onClick=vm::reviewFirst,enabled=s.reviewIndex>0) { Text("<<") }
+                        FilledTonalButton(onClick=vm::reviewPrevious,enabled=s.reviewIndex>0) { Text("<") }
+                        FilledTonalButton(onClick=vm::reviewNext,enabled=s.reviewIndex<s.review.lastIndex) { Text(">") }
+                        FilledTonalButton(onClick=vm::reviewLast,enabled=s.reviewIndex<s.review.lastIndex) { Text(">>") }
+                    }
+                    Text("수 이동 때마다 돌 강조와 등급 배지 애니메이션이 다시 재생됩니다.",style=MaterialTheme.typography.labelSmall)
+                }
+            }
             FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) { s.review.forEachIndexed { i,r -> FilterChip(selected=i==s.reviewIndex,onClick={vm.reviewSelect(i)},label={Text("${i+1}. ${r.played.label(s.position.size)} ${r.quality.symbol}",color=qualityColor(r.quality))}) } }
         }
     }

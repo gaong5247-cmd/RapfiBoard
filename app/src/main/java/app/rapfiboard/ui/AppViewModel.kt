@@ -13,7 +13,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
 
-data class AppState(val position:Position=Position(),val tab:Int=0,val busy:Boolean=false,val status:String="Ready to explore",val error:String?=null,val analysis:Analysis?=null,val preview:List<Move> = emptyList(),val previewCount:Int=0,val engine:EngineSpec=EngineSpec(),val config:AnalysisConfig=AnalysisConfig(),val review:List<ReviewMove> = emptyList(),val reviewIndex:Int=0,val reviewMode:Int=1,val stats:List<MoveStat> = emptyList(),val editor:Int=-1,val overlay:Int=3,val numbers:Boolean=true,val dark:Boolean=true,val training:Boolean=false,val hint:Int=0,val warm:Boolean=false,val networks:List<String> = emptyList(),val reviewGame:Position?=null)
+data class AppState(val position:Position=Position(),val tab:Int=0,val busy:Boolean=false,val status:String="Ready to explore",val error:String?=null,val analysis:Analysis?=null,val preview:List<Move> = emptyList(),val previewCount:Int=0,val engine:EngineSpec=EngineSpec(),val config:AnalysisConfig=AnalysisConfig(),val review:List<ReviewMove> = emptyList(),val reviewIndex:Int=0,val reviewMode:Int=1,val stats:List<MoveStat> = emptyList(),val editor:Int=-1,val overlay:Int=3,val numbers:Boolean=true,val dark:Boolean=true,val training:Boolean=false,val hint:Int=0,val warm:Boolean=false,val networks:List<String> = emptyList(),val reviewGame:Position?=null,val hasSavedReview:Boolean=false)
 class AppViewModel(application:Application):AndroidViewModel(application) {
     private val prefs=application.getSharedPreferences("session",0)
     private val engineManager=EngineManager(application)
@@ -30,7 +30,7 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
     private val undo=ArrayDeque<Position>()
     init {
         val encoded=prefs.getString("position",null)
-        try { if(encoded!=null) _state.update { it.copy(position=Position.decode(encoded),tab=prefs.getInt("tab",0).coerceIn(0,4),dark=prefs.getBoolean("dark",true)) } }
+        try { if(encoded!=null) _state.update { it.copy(position=Position.decode(encoded),tab=prefs.getInt("tab",0).coerceIn(0,4),dark=prefs.getBoolean("dark",true),hasSavedReview=prefs.contains("lastReviewGame")) } else _state.update { it.copy(hasSavedReview=prefs.contains("lastReviewGame")) } }
         catch(e:Exception) { _state.update { it.copy(error="이전 세션을 복원하지 못했어요: ${e.message}") } }
         refreshNetworks()
     }
@@ -112,17 +112,61 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
     fun bookmark(comment:String) { val p=state.value.position; viewModelScope.launch { try { database.dao.bookmark(BookmarkEntity(p.key(),p.encode(),comment)); _state.update { it.copy(status="북마크 저장 완료") } } catch(e:Exception) { reportError(e.message) } } }
     fun favorite(game:GameEntity) { viewModelScope.launch { database.dao.updateGame(game.copy(favorite=!game.favorite)) } }
     fun reviewMode(mode:Int) { _state.update { it.copy(reviewMode=mode) } }
-    fun review() {
-        val s=state.value; val game=s.reviewGame ?: s.position
+    private fun startReview(game:Position) {
+        val s=state.value
         val config=when(s.reviewMode) { 0 -> budget().copy(timeMs=300,nodes=30000,multiPv=3); 2 -> budget().copy(timeMs=8000,nodes=2000000,multiPv=5); else -> budget().copy(timeMs=1500,nodes=200000,multiPv=3) }
-        _state.update { it.copy(tab=2,reviewGame=game,review=emptyList(),preview=emptyList(),previewCount=0) }
-        launchWork("Reviewing game") { reviewer.review(game,config,s.engine) { rows -> _state.update { it.copy(review=rows,status="Review ${rows.size}/${game.stones.size}") } }; reviewSelect(0) }
+        prefs.edit().putString("lastReviewGame",game.encode()).apply()
+        _state.update { it.copy(tab=2,reviewGame=game,review=emptyList(),reviewIndex=0,preview=emptyList(),previewCount=0,training=false,hasSavedReview=true) }
+        launchWork("Reviewing game") {
+            reviewer.review(game,config,s.engine) { rows -> _state.update { it.copy(review=rows,status="Review ${rows.size}/${game.stones.size}") } }
+            if(state.value.review.isNotEmpty()) reviewSelect(0)
+        }
+    }
+    fun review() {
+        val s=state.value
+        startReview(s.reviewGame ?: s.position)
+    }
+    fun stopReview() {
+        val game=state.value.reviewGame
+        stop()
+        if(game!=null) prefs.edit().putString("lastReviewGame",game.encode()).apply()
+        _state.update {
+            it.copy(
+                position=game ?: it.position,
+                review=emptyList(),
+                reviewGame=null,
+                reviewIndex=0,
+                analysis=null,
+                preview=emptyList(),
+                previewCount=0,
+                training=false,
+                status=if(game!=null) "리뷰 저장됨 · 나중에 이어볼 수 있어요." else it.status,
+                hasSavedReview=prefs.contains("lastReviewGame")
+            )
+        }
+        persist()
+    }
+    fun resumeLastReview() {
+        val encoded=prefs.getString("lastReviewGame",null) ?: return
+        try {
+            val game=Position.decode(encoded)
+            _state.update { it.copy(position=game,reviewGame=game,review=emptyList(),reviewIndex=0,analysis=null,preview=emptyList(),previewCount=0,training=false,tab=2) }
+            startReview(game)
+        } catch(e:Exception) {
+            prefs.edit().remove("lastReviewGame").apply()
+            _state.update { it.copy(hasSavedReview=false) }
+            reportError("저장된 리뷰 대국을 복원하지 못했어요: ${e.message}")
+        }
     }
     fun reviewSelect(i:Int) {
         val s=state.value; val game=s.reviewGame ?: return
         val r=s.review.getOrNull(i) ?: return
         _state.update { it.copy(reviewIndex=i,position=game.prefix(r.ply),analysis=r.before,preview=emptyList(),previewCount=0,training=false) }
     }
+    fun reviewFirst() { if(state.value.review.isNotEmpty()) reviewSelect(0) }
+    fun reviewPrevious() { reviewSelect((state.value.reviewIndex-1).coerceAtLeast(0)) }
+    fun reviewNext() { reviewSelect((state.value.reviewIndex+1).coerceAtMost(state.value.review.lastIndex)) }
+    fun reviewLast() { if(state.value.review.isNotEmpty()) reviewSelect(state.value.review.lastIndex) }
     fun showLine() {
         val r=state.value.review.getOrNull(state.value.reviewIndex) ?: return
         reviewSelect(state.value.reviewIndex)
