@@ -32,16 +32,47 @@ class RuntimeInstaller(private val context:Context) {
         }
         root
     }
-    fun config(spec:EngineSpec):File {
-        val directory=File(root,if(spec.classical) "classical" else "nnue"); directory.mkdirs()
+    fun config(spec:EngineSpec, rule:Rule):File {
+        val mode=if(spec.classical) "classical" else "nnue"
+        val directory=File(root,"$mode/${rule.name.lowercase()}"); directory.mkdirs()
         val template=File(root,if(spec.classical) "classical.toml" else "nnue.toml").readText()
-        var config=template.replace("@RUNTIME@",root.absolutePath.replace("\\","/"))
-        if(spec.network!="default" && !spec.classical) {
-            val imported=File(context.filesDir,"networks/${spec.network}.bin.lz4")
-            check(imported.isFile && sha256(imported.readBytes())==spec.network) { "선택한 network가 없거나 손상됐어요." }
-            config=config.replace(File(root,"mix9svqfreestyle_bsmix.bin.lz4").absolutePath,imported.absolutePath)
+        val runtime=root.absolutePath.replace("\\","/")
+        var config=template.replace("@RUNTIME@",runtime)
+
+        if(!spec.classical) {
+            val selectedWeights=when(rule) {
+                Rule.FREESTYLE -> {
+                    val path=if(spec.network=="default") {
+                        "$runtime/mix9svqfreestyle_bsmix.bin.lz4"
+                    } else {
+                        val imported=File(context.filesDir,"networks/${spec.network}.bin.lz4")
+                        check(imported.isFile && sha256(imported.readBytes())==spec.network) { "선택한 network가 없거나 손상됐어요." }
+                        imported.absolutePath.replace("\\","/")
+                    }
+                    """
+                    [[model.evaluator.weights]]
+                    weight_file = "$path"
+                    """.trimIndent()
+                }
+                Rule.STANDARD -> """
+                    [[model.evaluator.weights]]
+                    weight_file = "$runtime/mix9svqstandard_bs15.bin.lz4"
+                """.trimIndent()
+                Rule.RENJU -> """
+                    [[model.evaluator.weights]]
+                    weight_file_black = "$runtime/mix9svqrenju_bs15_black.bin.lz4"
+                    weight_file_white = "$runtime/mix9svqrenju_bs15_white.bin.lz4"
+                """.trimIndent()
+            }
+            val firstWeight=config.indexOf("[[model.evaluator.weights]]")
+            val searchSection=config.indexOf("\n[search]")
+            check(firstWeight>=0 && searchSection>firstWeight) { "NNUE config의 weights 섹션을 찾을 수 없어요." }
+            config=config.substring(0,firstWeight)+selectedWeights+"\n\n"+config.substring(searchSection+1)
         }
-        val target=File(directory,"config.toml"); target.writeText(config); return directory
+
+        val target=File(directory,"config.toml")
+        target.writeText(config)
+        return directory
     }
 }
 /** Single consumer, bounded protocol queue, OS process isolation. A cancelled request destroys its process.
@@ -54,6 +85,7 @@ class EngineManager(private val context:Context):GomokuEngine {
     @Volatile private var writer:BufferedWriter?=null
     private var readerJob:Job?=null
     private var activeSpec:EngineSpec?=null
+    private var activeRule:Rule?=null
     private var lines=Channel<String>(512)
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private fun send(command:String) {
@@ -62,11 +94,11 @@ class EngineManager(private val context:Context):GomokuEngine {
         synchronized(w) { w.write(command); w.newLine(); w.flush() }
     }
     private suspend fun next():String = lines.receiveCatching().getOrNull() ?: error("엔진이 예기치 않게 종료됐어요. 재시작해 주세요.")
-    private suspend fun start(spec:EngineSpec,size:Int) {
-        if(process?.isAlive==true && activeSpec==spec) return
+    private suspend fun start(spec:EngineSpec,size:Int,rule:Rule) {
+        if(process?.isAlive==true && activeSpec==spec && activeRule==rule) return
         closeProcess()
         installer.install()
-        val dir=installer.config(spec)
+        val dir=installer.config(spec,rule)
         val executable=spec.executable ?: File(context.applicationInfo.nativeLibraryDir,"librapfi.so").absolutePath
         check(File(executable).canExecute()) { "이 기기 ABI에서 엔진을 실행할 수 없어요." }
         lines=Channel(512); val queue=lines
@@ -95,6 +127,7 @@ class EngineManager(private val context:Context):GomokuEngine {
             }
         }
         activeSpec=spec
+        activeRule=rule
         if(spec.rapfiExtensions) send("YXSHOWINFO")
         if(spec.rapfiExtensions) send("INFO PONDERING 0")
     }
@@ -105,7 +138,7 @@ class EngineManager(private val context:Context):GomokuEngine {
             require(spec.classical || position.rule==Rule.FREESTYLE || position.size==15) { "기본 Standard/Renju NNUE는 15×15 전용이에요." }
             require(spec.network=="default" || position.rule==Rule.FREESTYLE) { "가져온 network는 Freestyle에서 선택해 주세요." }
             try {
-                start(spec,position.size)
+                start(spec,position.size,position.rule)
                 val parser=ProtocolParser(position.size)
                 send("INFO RULE ${position.rule.protocol}"); send("START ${position.size}")
                 withTimeout(5000) { while(true) { val line=next(); if(line=="OK") break; if(line.startsWith("ERROR")) error(line) } }
@@ -148,7 +181,7 @@ class EngineManager(private val context:Context):GomokuEngine {
     override fun stop() { closeProcess() }
     private fun closeProcess() {
         process?.destroy(); process?.let { if(it.isAlive) it.destroyForcibly() }
-        process=null; writer=null; activeSpec=null; readerJob?.cancel(); readerJob=null; lines.close()
+        process=null; writer=null; activeSpec=null; activeRule=null; readerJob?.cancel(); readerJob=null; lines.close()
     }
     override fun close() { closeProcess() }
 }
