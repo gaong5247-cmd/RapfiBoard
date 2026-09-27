@@ -15,7 +15,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.rapfiboard.review.*
-import kotlin.math.roundToInt
+import kotlin.math.roundToInt\n\nprivate fun qualityColor(q:Quality)=when(q) {\n    Quality.BRILLIANT -> Color(0xFF53E0C1)\n    Quality.GREAT -> Color(0xFF4D8DFF)\n    Quality.BEST -> Color(0xFF55B96B)\n    Quality.EXCELLENT -> Color(0xFF75C96A)\n    Quality.GOOD -> Color(0xFFA4D65E)\n    Quality.THEORY,Quality.FORCED -> Color(0xFF69BF77)\n    Quality.INACCURACY -> Color(0xFFF2B84B)\n    Quality.MISTAKE -> Color(0xFFF28C3C)\n    Quality.BLUNDER -> Color(0xFFEF5350)\n    Quality.MISSED_WIN -> Color(0xFFFF7043)\n    Quality.FORBIDDEN -> Color(0xFFC62828)\n}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable fun ReviewScreen(vm:AppViewModel,s:AppState) {
@@ -33,7 +33,7 @@ import kotlin.math.roundToInt
                     val moves=s.review.filter { it.color==color }; val accuracy=AccuracyPolicy().accuracy(moves.mapNotNull { it.loss })
                     Text(accuracy?.let { "%.1f".format(it) } ?: "—",style=MaterialTheme.typography.displaySmall,fontWeight=FontWeight.Bold)
                     Text("Accuracy · 앱 기준",style=MaterialTheme.typography.labelSmall)
-                    moves.groupingBy { it.quality }.eachCount().forEach { (q,n) -> Text("${q.symbol} ${q.label}  $n",style=MaterialTheme.typography.bodySmall) }
+                    moves.groupingBy { it.quality }.eachCount().forEach { (q,n) -> Text("${q.symbol} ${q.label}  $n",style=MaterialTheme.typography.bodySmall,color=qualityColor(q)) }
                 } }
             }
             StudioCard {
@@ -51,9 +51,9 @@ import kotlin.math.roundToInt
             val row=s.review.getOrNull(s.reviewIndex) ?: s.review.first()
             StudioCard {
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) { Text("◈ RAPFI",fontWeight=FontWeight.Bold,color=MaterialTheme.colorScheme.primary);Text("MOVE ${row.ply+1}",style=MaterialTheme.typography.labelMedium) }
-                Text("${row.quality.symbol} ${row.quality.label}",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold)
+                Text("${row.quality.symbol} ${row.quality.label}",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold,color=qualityColor(row.quality))
                 Text(row.explanation)
-                Text("Best ${percent(row.before.candidates.firstOrNull()?.winRate)} → Played ${percent(row.playedValue)}",style=MaterialTheme.typography.bodyMedium)
+                Text("Best ${percent(row.before.candidates.firstOrNull()?.winRate)} → Played ${percent(row.playedValue)}",style=MaterialTheme.typography.bodyMedium)\n                row.drawConfidence?.let { confidence ->\n                    Surface(color=Color(0xFF5E6B78).copy(alpha=.16f),shape=MaterialTheme.shapes.medium) {\n                        Column(Modifier.padding(12.dp)) {\n                            Text("= Strong draw signal · ${(confidence*100).roundToInt()}%",fontWeight=FontWeight.SemiBold)\n                            Text(row.drawReason ?: "Rapfi evaluation is tightly balanced.",style=MaterialTheme.typography.bodySmall)\n                            Text("확정 무승부 선언이 아니라, 엔진 출력이 매우 무승부 쪽에 모인 위치예요.",style=MaterialTheme.typography.labelSmall)\n                        }\n                    }\n                }
                 Row { Button(onClick=vm::showLine){Text("WHY? · Show line")};Spacer(Modifier.width(8.dp));OutlinedButton(onClick=vm::train){Text("Find the move")} }
                 if(s.training) {
                     Text(when(s.hint){0->"추천 수를 판에서 찾아보세요.";1->row.before.best?.let { "${if(it.x<s.position.size/2) "왼쪽" else "오른쪽"} ${if(it.y<s.position.size/2) "위쪽" else "아래쪽"}을 살펴보세요." } ?: "중앙 주변 후보를 살펴보세요.";2->"후보: "+row.before.candidates.joinToString { it.pv.firstOrNull()?.label(s.position.size) ?: "—" };else->"추천 수: ${row.before.candidates.firstOrNull()?.pv?.firstOrNull()?.label(s.position.size)}"})
@@ -61,8 +61,8 @@ import kotlin.math.roundToInt
                 }
                 Text("${if(row.before.engine.classical) "Classical" else "NNUE"} · ${row.before.candidates.firstOrNull()?.nodes ?: 0} nodes · MultiPV ${row.before.config.multiPv}",style=MaterialTheme.typography.labelSmall)
             }
-            GomokuBoard(s.position,if(s.training) emptyList() else s.analysis?.candidates ?: emptyList(),s.preview.take(s.previewCount),emptySet(),s.numbers,emptyList(),if(s.training) 0 else 3,vm::place)
-            FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) { s.review.forEachIndexed { i,r -> FilterChip(selected=i==s.reviewIndex,onClick={vm.reviewSelect(i)},label={Text("${i+1}. ${r.played.label(s.position.size)} ${r.quality.symbol}")}) } }
+            GomokuBoard(s.position,if(s.training) emptyList() else s.analysis?.candidates ?: emptyList(),s.preview.take(s.previewCount),emptySet(),s.numbers,emptyList(),if(s.training) 0 else 3,vm::place,reviewMove=row.played,reviewStoneColor=row.color,reviewSymbol=row.quality.symbol,reviewColor=qualityColor(row.quality))
+            FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) { s.review.forEachIndexed { i,r -> FilterChip(selected=i==s.reviewIndex,onClick={vm.reviewSelect(i)},label={Text("${i+1}. ${r.played.label(s.position.size)} ${r.quality.symbol}",color=qualityColor(r.quality))}) } }
         }
     }
 }
