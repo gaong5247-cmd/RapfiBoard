@@ -23,7 +23,7 @@ import app.rapfiboard.engine.*
 import app.rapfiboard.data.MoveStat
 import kotlin.math.*
 
-@Composable fun GomokuBoard(position:Position,candidates:List<Candidate>,preview:List<Move>,forbidden:Set<Move>,numbers:Boolean,stats:List<MoveStat>,overlay:Int,onPlace:(Move)->Unit,modifier:Modifier=Modifier,reviewMove:Move?=null,reviewStoneColor:Int?=null,reviewSymbol:String?=null,reviewColor:Color=Color.Transparent) {
+@Composable fun GomokuBoard(position:Position,candidates:List<Candidate>,preview:List<Move>,forbidden:Set<Move>,numbers:Boolean,stats:List<MoveStat>,databaseMoves:List<DatabaseMove>,overlay:Int,onPlace:(Move)->Unit,modifier:Modifier=Modifier,reviewMove:Move?=null,reviewStoneColor:Int?=null,reviewSymbol:String?=null,reviewColor:Color=Color.Transparent) {
     var zoom by remember { mutableFloatStateOf(1f) }; var pan by remember { mutableStateOf(Offset.Zero) }
     val reviewFlash=remember { Animatable(0f) }
     LaunchedEffect(reviewMove,reviewSymbol,reviewStoneColor) {
@@ -96,7 +96,7 @@ import kotlin.math.*
                         text.color=android.graphics.Color.WHITE; text.textSize=step*.34f
                         drawContext.canvas.nativeCanvas.drawText(c.winRate?.let { "${(it*100).roundToInt()}" } ?: "${i+1}",o.x,o.y+step*.12f,text)
                     } } }
-                    if(overlay==0) stats.take(5).forEach { st -> val m=Move(st.x,st.y); if(position.at(m)==0) { val o=point(m); drawCircle(Color(0xFF5968B0).copy(alpha=.85f),step*.42f,o); text.color=android.graphics.Color.WHITE;text.textSize=step*.34f;drawContext.canvas.nativeCanvas.drawText("${st.games}",o.x,o.y+step*.12f,text) } }
+                    if(overlay==0) databaseMoves.take(12).forEach { db -> val m=db.move; if(position.at(m)==0) { val o=point(m); val wr=db.winRate; val color=when { wr==null -> Color(0xFF5968B0); wr>=.67 -> Color(0xFFD44C43); wr<=.33 -> Color(0xFF4476A9); else -> Color(0xFF1E7864) }; drawCircle(color.copy(alpha=.9f),step*.42f,o); text.color=android.graphics.Color.WHITE;text.textSize=step*.30f;val label=wr?.let { "${(it*100).roundToInt()}" } ?: db.displayLabel.ifBlank { "DB" };drawContext.canvas.nativeCanvas.drawText(label,o.x,o.y+step*.11f,text) } }
                 }
             }
         }

@@ -38,6 +38,11 @@ class RuntimeInstaller(private val context:Context) {
         val template=File(root,if(spec.classical) "classical.toml" else "nnue.toml").readText()
         val runtime=root.absolutePath.replace("\\","/")
         var config=template.replace("@RUNTIME@",runtime)
+        // One bundled Yixin database is shared by every rule/evaluator config.
+        val database=File(root,"rapfi.db")
+        config=config
+            .replace("url = \"rapfi.db\"","url = \"${database.absolutePath.replace("\\","/")}\"")
+            .replace("readonly_mode = false","readonly_mode = true")
 
         if(!spec.classical) {
             val selectedWeights=when(rule) {
@@ -131,6 +136,53 @@ class EngineManager(private val context:Context):GomokuEngine {
         if(spec.rapfiExtensions) send("YXSHOWINFO")
         if(spec.rapfiExtensions) send("INFO PONDERING 0")
     }
+    /** Query every child record for a position from Rapfi's bundled Yixin database. */
+    suspend fun queryDatabase(position:Position,spec:EngineSpec):List<DatabaseMove> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            if(!spec.rapfiExtensions || !position.isAlternating()) return@withContext emptyList()
+            installer.install()
+            val dbFile=File(installer.root,"rapfi.db")
+            if(!dbFile.isFile) return@withContext emptyList()
+            try {
+                start(spec,position.size,position.rule)
+                send("INFO RULE ${position.rule.protocol}"); send("START ${position.size}")
+                withTimeout(5000) { while(true) { val line=next(); if(line=="OK") break; if(line.startsWith("ERROR")) error(line) } }
+                send("INFO DATABASE_READONLY 1")
+                send("INFO USEDATABASE 1")
+                send("YXQUERYDATABASEALL")
+                // YX database queries replay the ordinary alternating sequence without color fields.
+                position.stones.forEach { send(it.move.wire()) }; send("DONE")
+                val result=mutableListOf<DatabaseMove>()
+                withTimeout(10000) {
+                    while(true) {
+                        val line=next().trim()
+                        if(line=="MESSAGE DATABASE DONE") break
+                        if(line.startsWith("ERROR") || line.startsWith("UNKNOWN")) error(line)
+                        if(!line.startsWith("MESSAGE DATABASE ") || line=="MESSAGE DATABASE REFRESH") continue
+                        val parts=line.removePrefix("MESSAGE DATABASE ").split(' ',limit=8)
+                        if(parts.size<7) continue
+                        val x=parts[0].toIntOrNull() ?: continue
+                        val y=parts[1].toIntOrNull() ?: continue
+                        if(x !in 0 until position.size || y !in 0 until position.size) continue
+                        val label=decodeDatabaseLabel(parts[2].toIntOrNull() ?: -1)
+                        result += DatabaseMove(
+                            move=Move(x,y),
+                            displayLabel=label,
+                            winRate=databaseWinRate(label),
+                            value=parts[3].toIntOrNull() ?: 0,
+                            depth=parts[4].toIntOrNull() ?: 0,
+                            bound=parts[5].toIntOrNull() ?: 0,
+                            hasComment=(parts[6].toIntOrNull() ?: 0)!=0,
+                            boardText=parts.getOrElse(7) { "" }
+                        )
+                    }
+                }
+                result.sortedWith(compareByDescending<DatabaseMove> { it.winRate ?: -1.0 }.thenByDescending { it.depth })
+            } catch(e:CancellationException) { closeProcess(); throw e }
+              catch(e:Exception) { closeProcess(); throw IllegalStateException("Rapfi 데이터베이스 조회 실패: ${e.message}",e) }
+        }
+    }
+
     override suspend fun analyze(position:Position,config:AnalysisConfig,spec:EngineSpec,onUpdate:(Analysis)->Unit):Analysis = mutex.withLock {
         withContext(Dispatchers.IO) {
             require(position.stones.size < position.size*position.size && position.winner()==0) { "종료된 위치는 분석할 수 없어요." }
@@ -147,7 +199,9 @@ class EngineManager(private val context:Context):GomokuEngine {
                 if(spec.rapfiExtensions) {
                     send("INFO HASH_SIZE ${config.hashMb*1024}"); send("INFO THREAD_NUM ${config.threads}")
                     send("INFO MAX_DEPTH ${config.depth}"); send("INFO MAX_NODE ${config.nodes}")
-                    send("INFO SHOW_DETAIL 2"); send("INFO USEDATABASE 0")
+                    send("INFO SHOW_DETAIL 2")
+                    send("INFO DATABASE_READONLY 1")
+                    send("INFO USEDATABASE ${if(File(installer.root,"rapfi.db").isFile) 1 else 0}")
                 }
                 send(if(spec.rapfiExtensions) "YXBOARD" else "BOARD")
                 positionPacket(position).forEach(::send); send("DONE")

@@ -25,7 +25,7 @@ fun percent(value:Double?)=value?.let { "%.1f%%".format(Locale.US,it*100) } ?: "
                 Text(if(s.position.winner()>0) "${if(s.position.winner()==1) "Black" else "White"} wins" else if(s.position.side==1) "● Black to move" else "○ White to move",fontWeight=FontWeight.SemiBold)
                 Text("MOVE ${s.position.stones.size}",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)
             }
-            GomokuBoard(s.position,s.analysis?.candidates ?: emptyList(),s.preview.take(s.previewCount),s.analysis?.forbidden ?: emptySet(),s.numbers,s.stats,s.overlay,vm::place)
+            GomokuBoard(s.position,s.analysis?.candidates ?: emptyList(),s.preview.take(s.previewCount),s.analysis?.forbidden ?: emptySet(),s.numbers,s.stats,s.rapfiDb,s.overlay,vm::place)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick=vm::undo,enabled=!s.busy) { Icon(Icons.Outlined.Undo,"되돌리기") }
                 Button(onClick={if(s.busy) vm.stop() else vm.analyze()},modifier=Modifier.weight(1f)) { Icon(if(s.busy) Icons.Outlined.Stop else Icons.Outlined.Analytics,null); Spacer(Modifier.width(8.dp)); Text(if(s.busy) "Stop" else "Analyze") }
@@ -38,8 +38,9 @@ fun percent(value:Double?)=value?.let { "%.1f%%".format(Locale.US,it*100) } ?: "
                 SectionLabel("Board tools")
                 FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected=s.numbers,onClick=vm::numbers,label={Text("Move numbers")})
-                    listOf(1,3,5,10,99,0).forEach { n -> FilterChip(selected=s.overlay==n,onClick={vm.overlay(n)},label={Text(when(n){99->"Heatmap";0->"Database";else->"Top $n"})}) }
+                    listOf(1,3,5,10,99,0).forEach { n -> FilterChip(selected=s.overlay==n,onClick={vm.overlay(n)},label={Text(when(n){99->"Heatmap";0->"Rapfi DB";else->"Top $n"})}) }
                 }
+                if(s.overlay==0) Text("Rapfi DB · ${s.rapfiDb.size} candidate records · 숫자는 현재 착점의 DB 승률",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
                 FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) { Rule.entries.forEach { r -> OutlinedButton(onClick={vm.newGame(r)},enabled=!s.busy) { Text(r.name.lowercase()) } } }
                 Text("규칙 버튼은 새 대국을 시작합니다.",style=MaterialTheme.typography.labelSmall)
                 FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
