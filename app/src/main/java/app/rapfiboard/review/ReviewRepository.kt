@@ -11,7 +11,7 @@ class ReviewRepository(private val analysis:AnalysisRepository, private val dao:
     suspend fun review(game:Position,config:AnalysisConfig,engine:EngineSpec,onMove:(List<ReviewMove>)->Unit):List<ReviewMove> {
         require(game.isAlternating()) { "리뷰는 교대로 둔 대국 기록이 필요해요." }
         val result=mutableListOf<ReviewMove>(); val classifier=ReviewClassifier()
-        val configKey=sha256("review-v1|$config|$engine"); val gameKey=sha256(game.encode())
+        val configKey=sha256("review-v2|$config|$engine"); val gameKey=sha256(game.encode())
         val stored=dao.reviews(gameKey,configKey).associateBy { it.ply }
         for(i in game.stones.indices) {
             coroutineContext.ensureActive()
@@ -43,9 +43,9 @@ class ReviewRepository(private val analysis:AnalysisRepository, private val dao:
         }
         return result
     }
-    private fun encode(m:ReviewMove)=JSONObject().put("ply",m.ply).put("color",m.color).put("played",m.played.wire()).put("before",AnalysisCodec.encode(m.before)).put("after",m.after?.let { AnalysisCodec.encode(it) }).put("value",m.playedValue).put("loss",m.loss).put("quality",m.quality.name).put("explanation",m.explanation).toString()
+    private fun encode(m:ReviewMove)=JSONObject().put("ply",m.ply).put("color",m.color).put("played",m.played.wire()).put("before",AnalysisCodec.encode(m.before)).put("after",m.after?.let { AnalysisCodec.encode(it) }).put("value",m.playedValue).put("loss",m.loss).put("quality",m.quality.name).put("explanation",m.explanation).put("drawConfidence",m.drawConfidence).put("drawReason",m.drawReason).toString()
     private fun decode(s:String):ReviewMove {
         val o=JSONObject(s)
-        return ReviewMove(o.getInt("ply"),o.getInt("color"),Move.parse(o.getString("played"),22)!!,AnalysisCodec.decode(o.getString("before")),if(o.has("after")) AnalysisCodec.decode(o.getString("after")) else null,if(o.has("value")) o.getDouble("value") else null,if(o.has("loss")) o.getDouble("loss") else null,Quality.valueOf(o.getString("quality")),o.getString("explanation"))
+        return ReviewMove(o.getInt("ply"),o.getInt("color"),Move.parse(o.getString("played"),22)!!,AnalysisCodec.decode(o.getString("before")),if(o.has("after") && !o.isNull("after")) AnalysisCodec.decode(o.getString("after")) else null,if(o.has("value") && !o.isNull("value")) o.getDouble("value") else null,if(o.has("loss") && !o.isNull("loss")) o.getDouble("loss") else null,Quality.valueOf(o.getString("quality")),o.getString("explanation"),if(o.has("drawConfidence") && !o.isNull("drawConfidence")) o.getDouble("drawConfidence") else null,if(o.has("drawReason") && !o.isNull("drawReason")) o.getString("drawReason") else null)
     }
 }
