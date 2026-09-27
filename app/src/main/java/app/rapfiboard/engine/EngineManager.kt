@@ -140,6 +140,7 @@ class EngineManager(private val context:Context):GomokuEngine {
     suspend fun queryDatabase(position:Position,spec:EngineSpec):List<DatabaseMove> = mutex.withLock {
         withContext(Dispatchers.IO) {
             if(!spec.rapfiExtensions || !position.isAlternating()) return@withContext emptyList()
+            installer.install()
             val dbFile=File(installer.root,"rapfi.db")
             if(!dbFile.isFile) return@withContext emptyList()
             try {
