@@ -1,7 +1,7 @@
 package app.rapfiboard.ui
 
 import android.graphics.Paint
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -25,9 +25,14 @@ import kotlin.math.*
 
 @Composable fun GomokuBoard(position:Position,candidates:List<Candidate>,preview:List<Move>,forbidden:Set<Move>,numbers:Boolean,stats:List<MoveStat>,overlay:Int,onPlace:(Move)->Unit,modifier:Modifier=Modifier,reviewMove:Move?=null,reviewStoneColor:Int?=null,reviewSymbol:String?=null,reviewColor:Color=Color.Transparent) {
     var zoom by remember { mutableFloatStateOf(1f) }; var pan by remember { mutableStateOf(Offset.Zero) }
-    var reviewFlash by remember(reviewMove,reviewSymbol) { mutableFloatStateOf(1f) }
-    LaunchedEffect(reviewMove,reviewSymbol) { reviewFlash=1f; kotlinx.coroutines.delay(80); reviewFlash=0f }
-    val reviewFlashAnim by animateFloatAsState(reviewFlash,animationSpec=tween(950),label="reviewFlash")
+    val reviewFlash=remember { Animatable(0f) }
+    LaunchedEffect(reviewMove,reviewSymbol,reviewStoneColor) {
+        if(reviewMove!=null) {
+            reviewFlash.stop()
+            reviewFlash.snapTo(1f)
+            reviewFlash.animateTo(0f,animationSpec=tween(900))
+        } else reviewFlash.snapTo(0f)
+    }
     val haptic=LocalHapticFeedback.current
     val text=remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign=Paint.Align.CENTER; typeface=android.graphics.Typeface.create("sans-serif-medium",0) } }
     Column(modifier) {
@@ -67,13 +72,18 @@ import kotlin.math.*
                     reviewMove?.let { m ->
                         val o=point(m)
                         if(position.at(m)==0 && reviewStoneColor!=null) {
-                            drawCircle(Color.Black.copy(alpha=.18f),step*.46f,o+Offset(1.5f,3f))
+                            val pulse=1f+0.12f*reviewFlash.value
+                            drawCircle(Color.Black.copy(alpha=.18f),step*.46f*pulse,o+Offset(1.5f,3f))
                             val black=reviewStoneColor==1
-                            drawCircle(Brush.radialGradient(if(black) listOf(Color(0xFF4D5155),Color(0xFF13181B)) else listOf(Color.White,Color(0xFFD9DCDD)),o-Offset(step*.13f,step*.14f),step*.7f),step*.44f,o)
+                            drawCircle(Brush.radialGradient(if(black) listOf(Color(0xFF4D5155),Color(0xFF13181B)) else listOf(Color.White,Color(0xFFD9DCDD)),o-Offset(step*.13f,step*.14f),step*.7f*pulse),step*.44f*pulse,o)
                         }
-                        if(reviewFlashAnim>0.01f) drawCircle(Color(0xFF53E0C1).copy(alpha=.78f*reviewFlashAnim),step*.47f,o)
+                        if(reviewFlash.value>0.01f) {
+                            val glowRadius=step*(.47f+.10f*reviewFlash.value)
+                            drawCircle(Color(0xFF53E0C1).copy(alpha=.82f*reviewFlash.value),glowRadius,o)
+                            drawCircle(Color.White.copy(alpha=.22f*reviewFlash.value),glowRadius*.72f,o)
+                        }
                         reviewSymbol?.takeIf { it.isNotBlank() }?.let { symbol ->
-                            val alpha=(1f-reviewFlashAnim).coerceIn(.18f,1f)
+                            val alpha=(1f-reviewFlash.value).coerceIn(.18f,1f)
                             val badge=o+Offset(step*.48f,-step*.48f)
                             drawRoundRect(reviewColor.copy(alpha=alpha),topLeft=badge-Offset(step*.35f,step*.27f),size=androidx.compose.ui.geometry.Size(step*.70f,step*.54f),cornerRadius=androidx.compose.ui.geometry.CornerRadius(step*.16f))
                             text.textSize=step*.34f; text.color=android.graphics.Color.WHITE
