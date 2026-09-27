@@ -1,5 +1,5 @@
 name: Android CI
-# trigger after workflow landed on main
+# Native Rapfi + Android APK build
 
 on:
   pull_request:
@@ -14,14 +14,16 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
 
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-      - name: Set up Java 17
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -30,17 +32,49 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.11.1'
+          gradle-version: '8.13'
 
-      - name: Unit tests
-        run: gradle --no-daemon :app:testDebugUnitTest
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
-      - name: Build debug APK
-        run: gradle --no-daemon :app:assembleDebug
+      - name: Install Android NDK/CMake
+        run: |
+          sdkmanager "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
 
-      - name: Upload APK
+      - name: Create release keystore
+        run: |
+          mkdir -p signing
+          keytool -genkeypair -v \
+            -keystore signing/local-release.jks \
+            -storepass rapfiboard-local \
+            -keypass rapfiboard-local \
+            -alias rapfiboard \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=RapfiBoard, OU=CI, O=RapfiBoard, L=Seoul, ST=Seoul, C=KR"
+
+      - name: Build native Rapfi + release APKs
+        run: python3 scripts/build_apk.py --release all --run-tests
+
+      - name: Verify native Rapfi libraries exist
+        run: |
+          test -s app/src/main/jniLibs/arm64-v8a/librapfi.so
+          test -s app/src/main/jniLibs/armeabi-v7a/librapfi.so
+          file app/src/main/jniLibs/arm64-v8a/librapfi.so
+          file app/src/main/jniLibs/armeabi-v7a/librapfi.so
+
+      - name: Upload release APKs
         uses: actions/upload-artifact@v4
         with:
-          name: rapfiboard-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: rapfiboard-android-native-release
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS
           if-no-files-found: error
