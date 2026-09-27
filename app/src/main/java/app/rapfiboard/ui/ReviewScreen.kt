@@ -89,7 +89,7 @@ private fun qualityColor(q:Quality)=when(q) {
                 }
                 Text("${if(row.before.engine.classical) "Classical" else "NNUE"} · ${row.before.candidates.firstOrNull()?.nodes ?: 0} nodes · MultiPV ${row.before.config.multiPv}",style=MaterialTheme.typography.labelSmall)
             }
-            GomokuBoard(s.position,if(s.training) emptyList() else s.analysis?.candidates ?: emptyList(),s.preview.take(s.previewCount),emptySet(),s.numbers,emptyList(),if(s.training) 0 else 3,vm::place,reviewMove=row.played,reviewStoneColor=row.color,reviewSymbol=row.quality.symbol,reviewColor=qualityColor(row.quality))
+            GomokuBoard(s.position,if(s.training) emptyList() else s.analysis?.candidates ?: emptyList(),s.preview.take(s.previewCount),emptySet(),s.numbers,emptyList(),emptyList(),if(s.training) 0 else 3,vm::place,reviewMove=row.played,reviewStoneColor=row.color,reviewSymbol=row.quality.symbol,reviewColor=qualityColor(row.quality))
             if(!s.busy) {
                 StudioCard {
                     Text("Review navigation · ${s.reviewIndex+1}/${s.review.size}",style=MaterialTheme.typography.labelMedium)
