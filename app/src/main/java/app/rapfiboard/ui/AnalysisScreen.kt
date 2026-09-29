@@ -198,26 +198,119 @@ private fun BoardAction(
 
 @OptIn(ExperimentalFoundationApi::class,ExperimentalLayoutApi::class)
 @Composable fun AnalysisPanel(vm:AppViewModel,s:AppState) {
-    val a=s.analysis;val best=a?.candidates?.firstOrNull()
+    val a=s.analysis
+    val candidates=a?.candidates.orEmpty()
+    val best=candidates.firstOrNull()
+    val black=best?.winRate?.let { if(s.position.side==1) it else 1-it }
+    var details by remember(a?.positionKey) { mutableStateOf(false) }
+
     StudioCard {
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) { Text("${s.engine.name.uppercase()}  /  ${if(s.engine.classical) "CLASSICAL" else "NNUE"}",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary); Text(if(a?.cached==true) "CACHED" else s.status,style=MaterialTheme.typography.labelSmall) }
-        val black=best?.winRate?.let { if(s.position.side==1) it else 1-it }
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) { Column { Text("BLACK",style=MaterialTheme.typography.labelMedium);Text(percent(black),style=MaterialTheme.typography.displaySmall,fontWeight=FontWeight.SemiBold) }; Column { Text("BEST MOVE",style=MaterialTheme.typography.labelMedium);Text((a?.best ?: best?.pv?.firstOrNull())?.label(s.position.size) ?: "—",style=MaterialTheme.typography.displaySmall) } }
-        LinearProgressIndicator(progress={ (black ?: .5).toFloat() },modifier=Modifier.fillMaxWidth().height(6.dp))
-        Text("평가 변환값 · 실전 승률로 보정되지 않은 추정치",style=MaterialTheme.typography.labelSmall)
-        Text("Raw ${best?.score?.raw ?: "—"}   ·   W / D / L ${if(best?.drawRate==null) "미제공" else "${percent(best.winRate)} / ${percent(best.drawRate)} / ${percent(1-(best.winRate?:0.0)-(best.drawRate?:0.0))}"}",style=MaterialTheme.typography.bodySmall)
-        if(best!=null) {
-            HorizontalDivider()
-            a.candidates.forEach { c -> Row(Modifier.fillMaxWidth().clickable { vm.preview(c.pv,c.pv.size) }.padding(vertical=6.dp),horizontalArrangement=Arrangement.SpaceBetween) { Text("${c.index+1}.  ${c.pv.firstOrNull()?.label(s.position.size)}",fontWeight=FontWeight.SemiBold); Text("${percent(c.winRate)}  ·  ${c.score.raw}",style=MaterialTheme.typography.bodyMedium) } }
-            Text("PRINCIPAL VARIATION",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)
-            val pv=if(s.preview.isNotEmpty()) s.preview else best.pv
-            LazyRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) { itemsIndexed(pv) { i,m -> Surface(shape=MaterialTheme.shapes.small,color=if(i<s.previewCount) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface) { Text(m.label(s.position.size),Modifier.combinedClickable(onClick={vm.preview(pv,i+1)},onDoubleClick={vm.applyPv(pv,i+1)}).padding(14.dp)) } } }
-            Slider(value=s.previewCount.toFloat().coerceAtMost(pv.size.toFloat()),onValueChange={vm.preview(pv,it.toInt())},valueRange=0f..pv.size.coerceAtLeast(1).toFloat(),steps=(pv.size-1).coerceAtLeast(0))
-            Text("한 번 탭: 미리보기 · 두 번 탭: 적용 · Undo로 복귀",style=MaterialTheme.typography.labelSmall)
-            var detail by remember { mutableStateOf(false) }; TextButton(onClick={detail=!detail}){Text(if(detail) "Hide engine details" else "Engine details")}
-            if(detail) Text("Depth ${best.depth}  ·  Nodes ${best.nodes}\nNPS ${best.nps}  ·  ${best.timeMs} ms\nThreads ${a.config.threads} · MultiPV ${a.config.multiPv}\nNetwork ${s.engine.network}\n${s.position.rule} · ${if(a.completed) "Complete" else "Searching"}",style=MaterialTheme.typography.bodySmall)
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically) {
+            Text("${s.engine.name.uppercase()} · ${if(s.engine.classical) "CLASSICAL" else "NNUE"}",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary,fontWeight=FontWeight.Bold)
+            Text(if(a?.cached==true) "CACHED" else s.status,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        var draw by remember { mutableStateOf(false) }; TextButton(onClick={draw=!draw}){Text("Draw information")}
-        if(draw) Text("Proven draw: ${if(s.position.stones.size==s.position.size*s.position.size && s.position.winner()==0) "보드가 가득 참" else "확인되지 않음"}\nEngine draw: ${percent(best?.drawRate)}\nDatabase draw tendency: ${s.stats.sumOf { it.draws }} / ${s.stats.sumOf { it.wins+it.draws+it.losses }} 결과 있는 대국",style=MaterialTheme.typography.bodySmall)
+
+        Row(Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) {
+                Text(percent(black),style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                Text("BLACK",style=MaterialTheme.typography.labelSmall)
+            }
+            Column(Modifier.weight(1f),horizontalAlignment=Alignment.CenterHorizontally) {
+                Text((a?.best ?: best?.pv?.firstOrNull())?.label(s.position.size) ?: "—",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                Text("BEST",style=MaterialTheme.typography.labelSmall)
+            }
+            Column(Modifier.weight(1f),horizontalAlignment=Alignment.End) {
+                Text(best?.depth?.toString() ?: "—",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                Text("DEPTH",style=MaterialTheme.typography.labelSmall)
+            }
+        }
+        LinearProgressIndicator(progress={ (black ?: .5).toFloat() },modifier=Modifier.fillMaxWidth().height(4.dp))
+
+        if(best==null) {
+            Text("Analyze를 누르면 후보수와 PV가 여기에 바로 붙어요.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            LazyRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                itemsIndexed(candidates.take(5)) { i,c ->
+                    Surface(
+                        shape=MaterialTheme.shapes.small,
+                        color=if(i==0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                        modifier=Modifier.clickable { vm.preview(c.pv,c.pv.size) }
+                    ) {
+                        Text(
+                            "${i+1}. ${c.pv.firstOrNull()?.label(s.position.size) ?: "—"}  ${percent(c.winRate)}",
+                            Modifier.padding(horizontal=9.dp,vertical=7.dp),
+                            style=MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
+            }
+
+            val pv=if(s.preview.isNotEmpty()) s.preview else best.pv
+            if(pv.isNotEmpty()) {
+                Text("PV",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary,fontWeight=FontWeight.Bold)
+                LazyRow(horizontalArrangement=Arrangement.spacedBy(5.dp)) {
+                    itemsIndexed(pv) { i,m ->
+                        Surface(
+                            shape=MaterialTheme.shapes.small,
+                            color=if(i<s.previewCount) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                        ) {
+                            Text(
+                                m.label(s.position.size),
+                                Modifier.combinedClickable(
+                                    onClick={vm.preview(pv,i+1)},
+                                    onDoubleClick={vm.applyPv(pv,i+1)}
+                                ).padding(horizontal=9.dp,vertical=7.dp),
+                                style=MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+                }
+            }
+
+            TextButton(onClick={details=!details},contentPadding=PaddingValues(horizontal=0.dp,vertical=0.dp)) {
+                Text(if(details) "Less details" else "More details")
+            }
+            if(details) {
+                val win=best.winRate
+                val draw=best.drawRate
+                val loss=if(win!=null && draw!=null) 1-win-draw else null
+                HorizontalDivider()
+                Text(
+                    "Raw ${best.score.raw} · W/D/L ${percent(win)} / ${percent(draw)} / ${percent(loss)}",
+                    style=MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "Depth ${best.depth} · Nodes ${best.nodes} · NPS ${best.nps} · ${best.timeMs} ms",
+                    style=MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "Threads ${a?.config?.threads ?: "—"} · MultiPV ${a?.config?.multiPv ?: "—"} · Network ${s.engine.network}",
+                    style=MaterialTheme.typography.bodySmall
+                )
+                if(pv.isNotEmpty()) {
+                    Slider(
+                        value=s.previewCount.toFloat().coerceAtMost(pv.size.toFloat()),
+                        onValueChange={vm.preview(pv,it.toInt())},
+                        valueRange=0f..pv.size.coerceAtLeast(1).toFloat(),
+                        steps=(pv.size-1).coerceAtLeast(0)
+                    )
+                }
+                candidates.forEach { c ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { vm.preview(c.pv,c.pv.size) }.padding(vertical=4.dp),
+                        horizontalArrangement=Arrangement.SpaceBetween
+                    ) {
+                        Text("${c.index+1}. ${c.pv.firstOrNull()?.label(s.position.size) ?: "—"}",fontWeight=FontWeight.SemiBold)
+                        Text("${percent(c.winRate)} · ${c.score.raw}",style=MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Text(
+                    "DB draw ${s.stats.sumOf { it.draws }} / ${s.stats.sumOf { it.wins+it.draws+it.losses }}",
+                    style=MaterialTheme.typography.labelSmall,
+                    color=MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
+
