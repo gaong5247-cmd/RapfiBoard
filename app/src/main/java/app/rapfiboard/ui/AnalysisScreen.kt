@@ -8,7 +8,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.rapfiboard.core.*
@@ -20,82 +22,180 @@ fun percent(value:Double?)=value?.let { "%.1f%%".format(Locale.US,it*100) } ?: "
 private fun PositionStatus(s:AppState,modifier:Modifier=Modifier) {
     val winner=s.position.winner()
     val last=s.position.stones.lastOrNull()?.move?.label(s.position.size)
-    Surface(modifier.fillMaxWidth(),tonalElevation=2.dp,shape=MaterialTheme.shapes.medium) {
+    Surface(
+        modifier.fillMaxWidth(),
+        color=MaterialTheme.colorScheme.surface.copy(alpha=.82f),
+        shape=MaterialTheme.shapes.small
+    ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=9.dp),
-            horizontalArrangement=Arrangement.SpaceBetween
+            Modifier.fillMaxWidth().padding(horizontal=10.dp,vertical=6.dp),
+            verticalAlignment=Alignment.CenterVertically
         ) {
-            Column {
-                Text(
-                    if(winner>0) "${if(winner==1) "Black" else "White"} wins"
-                    else if(s.position.side==1) "● Black to move" else "○ White to move",
-                    fontWeight=FontWeight.SemiBold
-                )
-                if(last!=null) Text("Last $last",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Text("MOVE ${s.position.stones.size}",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)
+            Text(
+                if(winner>0) "${if(winner==1) "● Black wins" else "○ White wins"}"
+                else if(s.position.side==1) "● Black" else "○ White",
+                style=MaterialTheme.typography.bodyMedium,
+                fontWeight=FontWeight.SemiBold
+            )
+            Text(
+                listOfNotNull(last?.let { "Last $it" },s.position.rule.name.lowercase()).joinToString(" · "),
+                modifier=Modifier.weight(1f).padding(horizontal=10.dp),
+                style=MaterialTheme.typography.labelSmall,
+                color=MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "MOVE ${s.position.stones.size}",
+                style=MaterialTheme.typography.labelMedium,
+                color=MaterialTheme.colorScheme.primary,
+                fontWeight=FontWeight.Bold
+            )
         }
+    }
+}
+
+@Composable
+private fun BoardAction(
+    icon:ImageVector,
+    label:String,
+    modifier:Modifier=Modifier,
+    enabled:Boolean=true,
+    onClick:()->Unit
+) {
+    Column(modifier,horizontalAlignment=Alignment.CenterHorizontally) {
+        FilledTonalIconButton(onClick=onClick,enabled=enabled,modifier=Modifier.size(40.dp)) {
+            Icon(icon,label,modifier=Modifier.size(20.dp))
+        }
+        Text(label,style=MaterialTheme.typography.labelSmall,color=if(enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha=.38f))
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable fun BoardScreen(vm:AppViewModel,s:AppState) {
+    var toolsExpanded by remember { mutableStateOf(false) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide=maxWidth>=720.dp
-        val board:@Composable ()->Unit={ Column {
-            GomokuBoard(s.position,s.analysis?.candidates ?: emptyList(),s.preview.take(s.previewCount),s.analysis?.forbidden ?: emptySet(),s.numbers,s.stats,s.overlay,vm::place)
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick=vm::undo,enabled=!s.busy) { Icon(Icons.Outlined.Undo,"되돌리기") }
-                Button(onClick={if(s.busy) vm.stop() else vm.analyze()},modifier=Modifier.weight(1f)) { Icon(if(s.busy) Icons.Outlined.Stop else Icons.Outlined.Analytics,null); Spacer(Modifier.width(8.dp)); Text(if(s.busy) "Stop" else "Analyze") }
-                OutlinedButton(onClick={vm.analyze(play=true)},enabled=!s.busy) { Text("Engine move") }
-            }
-        } }
-        val panel:@Composable ()->Unit={ Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            AnalysisPanel(vm,s)
-            StudioCard {
-                SectionLabel("Board tools")
-                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected=s.numbers,onClick=vm::numbers,label={Text("Move numbers")})
-                    listOf(1,3,5,10,99,0).forEach { n -> FilterChip(selected=s.overlay==n,onClick={vm.overlay(n)},label={Text(when(n){99->"Heatmap";0->"Database";else->"Top $n"})}) }
+        val board:@Composable ()->Unit={
+            Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                GomokuBoard(
+                    s.position,
+                    s.analysis?.candidates ?: emptyList(),
+                    s.preview.take(s.previewCount),
+                    s.analysis?.forbidden ?: emptySet(),
+                    s.numbers,
+                    s.stats,
+                    s.overlay,
+                    vm::place
+                )
+                Surface(
+                    Modifier.fillMaxWidth(),
+                    tonalElevation=2.dp,
+                    shape=MaterialTheme.shapes.medium
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal=6.dp,vertical=6.dp),
+                        verticalAlignment=Alignment.CenterVertically
+                    ) {
+                        BoardAction(Icons.Outlined.Undo,"Undo",Modifier.weight(1f),!s.busy,vm::undo)
+                        BoardAction(
+                            if(s.busy) Icons.Outlined.Stop else Icons.Outlined.Analytics,
+                            if(s.busy) "Stop" else "Analyze",
+                            Modifier.weight(1f),
+                            true,
+                            { if(s.busy) vm.stop() else vm.analyze() }
+                        )
+                        BoardAction(Icons.Outlined.PlayArrow,"Engine",Modifier.weight(1f),!s.busy,{vm.analyze(play=true)})
+                        BoardAction(Icons.Outlined.Refresh,"New",Modifier.weight(1f),!s.busy,{vm.newGame()})
+                        BoardAction(Icons.Outlined.Tune,"Tools",Modifier.weight(1f),true,{toolsExpanded=!toolsExpanded})
+                    }
                 }
-                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) { Rule.entries.forEach { r -> OutlinedButton(onClick={vm.newGame(r)},enabled=!s.busy) { Text(r.name.lowercase()) } } }
-                Text("규칙 버튼은 새 대국을 시작합니다.",style=MaterialTheme.typography.labelSmall)
+            }
+        }
+        val tools:@Composable ()->Unit={
+            StudioCard {
+                Text("BOARD TOOLS",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary,fontWeight=FontWeight.Bold)
                 FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick={vm.newGame()}) { Text("New game") }
-                    TextButton(onClick={vm.editor(if(s.editor<0) 1 else -1)}) { Text(if(s.editor<0) "Position editor" else "Exit editor") }
+                    FilterChip(selected=s.numbers,onClick=vm::numbers,label={Text("Move #")})
+                    listOf(1,3,5,10,99,0).forEach { n ->
+                        FilterChip(
+                            selected=s.overlay==n,
+                            onClick={vm.overlay(n)},
+                            label={Text(when(n){99->"Heat";0->"DB";else->"Top $n"})}
+                        )
+                    }
+                }
+                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Rule.entries.forEach { r -> OutlinedButton(onClick={vm.newGame(r)},enabled=!s.busy) { Text(r.name.lowercase()) } }
+                }
+                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick={vm.editor(if(s.editor<0) 1 else -1)}) { Text(if(s.editor<0) "Edit" else "Exit edit") }
                     TextButton(onClick={vm.bookmark("${s.position.rule} · ${s.position.stones.size} moves")}) { Text("Bookmark") }
-                    TextButton(onClick=vm::review,enabled=s.position.stones.isNotEmpty()&&!s.busy) { Text("Review game") }
+                    TextButton(onClick=vm::review,enabled=s.position.stones.isNotEmpty()&&!s.busy) { Text("Review") }
                 }
                 if(s.editor>=0) {
-                    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) { listOf(1 to "Black",2 to "White",0 to "Erase").forEach { (mode,label) -> FilterChip(selected=s.editor==mode,onClick={vm.editor(mode)},label={Text(label)}) } }
-                    FlowRow { TextButton(onClick=vm::side){Text("Switch turn")};TextButton(onClick={vm.transform(false)}){Text("Rotate")};TextButton(onClick={vm.transform(true)}){Text("Mirror")};TextButton(onClick={vm.newGame(size=if(s.position.size==15) 19 else 15)}){Text("15 / 19 board")} }
-                    Text(if(s.position.isAlternating()) "분석 가능한 교대 수순" else "편집 위치: Rapfi pass 확장으로 분석합니다. 게임 리뷰는 교대 수순만 지원해요.",style=MaterialTheme.typography.bodySmall)
+                    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        listOf(1 to "Black",2 to "White",0 to "Erase").forEach { (mode,label) ->
+                            FilterChip(selected=s.editor==mode,onClick={vm.editor(mode)},label={Text(label)})
+                        }
+                    }
+                    FlowRow {
+                        TextButton(onClick=vm::side){Text("Turn")}
+                        TextButton(onClick={vm.transform(false)}){Text("Rotate")}
+                        TextButton(onClick={vm.transform(true)}){Text("Mirror")}
+                        TextButton(onClick={vm.newGame(size=if(s.position.size==15) 19 else 15)}){Text("15 / 19")}
+                    }
                 }
                 var threats by remember { mutableStateOf(false) }
-                TextButton(onClick={threats=!threats}) { Text("Threat patterns · GUI detector") }
+                TextButton(onClick={threats=!threats}) { Text(if(threats) "Hide threats" else "Threat patterns") }
                 if(threats) {
                     val patterns=ThreatDetector.detect(s.position)
                     if(patterns.isEmpty()) Text("현재 연속형 위협 패턴 없음",style=MaterialTheme.typography.bodySmall)
-                    patterns.forEach { t -> TextButton(onClick={vm.preview(t.stones,t.stones.size)}) { Text("${if(t.color==1) "Black" else "White"} ${t.label}: ${t.stones.joinToString { it.label(s.position.size) }}") } }
-                    Text("GUI의 연속형 패턴 검사입니다. 렌주 금수 여부나 강제 승리를 뜻하지 않아요.",style=MaterialTheme.typography.labelSmall)
+                    patterns.forEach { t ->
+                        TextButton(onClick={vm.preview(t.stones,t.stones.size)}) {
+                            Text("${if(t.color==1) "Black" else "White"} ${t.label}: ${t.stones.joinToString { it.label(s.position.size) }}")
+                        }
+                    }
                 }
                 var coord by remember { mutableStateOf("") }
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) { OutlinedTextField(coord,{coord=it},label={Text("좌표 (예: H8)")},modifier=Modifier.weight(1f),singleLine=true); Button(onClick={ val x=coord.firstOrNull()?.uppercaseChar()?.minus('A'); val y=coord.drop(1).toIntOrNull(); if(x!=null && y!=null && x in 0 until s.position.size && y in 1..s.position.size) vm.place(Move(x,s.position.size-y)) else vm.reportError("A1부터 판 크기 안의 좌표를 입력해 주세요.") }) { Text("Place") } }
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(coord,{coord=it},label={Text("H8")},modifier=Modifier.weight(1f),singleLine=true)
+                    Button(onClick={
+                        val x=coord.firstOrNull()?.uppercaseChar()?.minus('A')
+                        val y=coord.drop(1).toIntOrNull()
+                        if(x!=null && y!=null && x in 0 until s.position.size && y in 1..s.position.size) vm.place(Move(x,s.position.size-y))
+                        else vm.reportError("A1부터 판 크기 안의 좌표를 입력해 주세요.")
+                    }) { Text("Place") }
+                }
             }
-        } }
-        if(wide) Row(Modifier.fillMaxSize().padding(20.dp),horizontalArrangement=Arrangement.spacedBy(24.dp)) {
-            Column(Modifier.weight(1.15f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) { PositionStatus(s); board() }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { panel() }
-        } else Column(Modifier.fillMaxSize()) {
-            // Keep move/turn information visible while the board tools and analysis panel scroll underneath it.
-            PositionStatus(s,Modifier.padding(start=16.dp,end=16.dp,top=8.dp))
-            Column(
-                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
-                verticalArrangement=Arrangement.spacedBy(16.dp)
-            ) { board(); panel() }
+        }
+        val panel:@Composable ()->Unit={
+            Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                AnalysisPanel(vm,s)
+                if(wide || toolsExpanded) tools()
+            }
+        }
+        if(wide) {
+            Row(Modifier.fillMaxSize().padding(16.dp),horizontalArrangement=Arrangement.spacedBy(16.dp)) {
+                Column(
+                    Modifier.weight(1.2f).verticalScroll(rememberScrollState()),
+                    verticalArrangement=Arrangement.spacedBy(8.dp)
+                ) { PositionStatus(s); board() }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { panel() }
+            }
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                PositionStatus(s,Modifier.padding(start=8.dp,end=8.dp,top=4.dp))
+                Column(
+                    Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal=8.dp,vertical=6.dp),
+                    verticalArrangement=Arrangement.spacedBy(8.dp)
+                ) {
+                    board()
+                    panel()
+                }
+            }
         }
     }
 }
+
 @OptIn(ExperimentalFoundationApi::class,ExperimentalLayoutApi::class)
 @Composable fun AnalysisPanel(vm:AppViewModel,s:AppState) {
     val a=s.analysis;val best=a?.candidates?.firstOrNull()
