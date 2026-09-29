@@ -66,3 +66,4 @@ jobs:
             dist/*.apk
             dist/SHA256SUMS
           if-no-files-found: error
+          retention-days: 14
