@@ -1,6 +1,8 @@
 package app.rapfiboard.engine
 
 import android.content.Context
+import android.os.Build
+import android.os.Process as AndroidProcess
 import android.util.Log
 import app.rapfiboard.BuildConfig
 import app.rapfiboard.core.*
@@ -94,15 +96,36 @@ class EngineManager(private val context:Context):GomokuEngine {
         synchronized(w) { w.write(command); w.newLine(); w.flush() }
     }
     private suspend fun next():String = lines.receiveCatching().getOrNull() ?: error("엔진이 예기치 않게 종료됐어요. 재시작해 주세요.")
+    private fun engineCommand(executable:String):List<String> {
+        val file=File(executable)
+        val abi=Build.SUPPORTED_ABIS.joinToString()
+        check(file.isFile) {
+            "Rapfi 실행 파일을 찾지 못했어요. ABI=[$abi] · nativeDir=${context.applicationInfo.nativeLibraryDir}"
+        }
+        check(file.canRead()) {
+            "Rapfi 실행 파일을 읽을 수 없어요. ABI=[$abi] · path=${file.absolutePath}"
+        }
+        if(file.canExecute()) return listOf(file.absolutePath)
+
+        // Some Android installers expose APK native entries as readable ELF files
+        // without an executable bit. Rapfi is a PIE executable, so the platform
+        // dynamic linker can launch it directly without relying on +x on librapfi.so.
+        val linker=File(if(AndroidProcess.is64Bit()) "/system/bin/linker64" else "/system/bin/linker")
+        check(linker.isFile && linker.canExecute()) {
+            "Rapfi 파일은 있지만 실행 권한이 없고 시스템 링커도 사용할 수 없어요. ABI=[$abi] · path=${file.absolutePath}"
+        }
+        AppLog.event("ENGINE","Using Android linker fallback: ${linker.absolutePath} ${file.absolutePath}")
+        return listOf(linker.absolutePath,file.absolutePath)
+    }
     private suspend fun start(spec:EngineSpec,size:Int,rule:Rule) {
         if(process?.isAlive==true && activeSpec==spec && activeRule==rule) return
         closeProcess()
         installer.install()
         val dir=installer.config(spec,rule)
         val executable=spec.executable ?: File(context.applicationInfo.nativeLibraryDir,"librapfi.so").absolutePath
-        check(File(executable).canExecute()) { "이 기기 ABI에서 엔진을 실행할 수 없어요." }
+        val command=engineCommand(executable)
         lines=Channel(512); val queue=lines
-        val p=ProcessBuilder(executable).directory(dir).redirectErrorStream(true).start(); process=p; writer=p.outputStream.bufferedWriter()
+        val p=ProcessBuilder(command).directory(dir).redirectErrorStream(true).start(); process=p; writer=p.outputStream.bufferedWriter()
         readerJob=scope.launch {
             try {
                 p.inputStream.bufferedReader().use { input ->
