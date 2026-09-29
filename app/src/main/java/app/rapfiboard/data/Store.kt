@@ -81,11 +81,20 @@ object AnalysisCodec {
     }
 }
 class AnalysisRepository(private val engine:GomokuEngine,private val dao:StoreDao) {
-    suspend fun analyze(p:Position,c:AnalysisConfig,e:EngineSpec,force:Boolean=false,onUpdate:(Analysis)->Unit={}):Analysis {
+    suspend fun analyze(
+        p:Position,
+        c:AnalysisConfig,
+        e:EngineSpec,
+        force:Boolean=false,
+        cacheResult:Boolean=true,
+        onUpdate:(Analysis)->Unit={}
+    ):Analysis {
         val key=sha256("rapfi-3c94c2a|${p.key()}|$e|$c")
         if(!force) dao.cache(key)?.let { return AnalysisCodec.decode(it.json).copy(engine=e) }
         val a=engine.analyze(p,c,e,onUpdate)
-        if(a.completed && a.candidates.isNotEmpty()) dao.putCache(CacheEntity(key,AnalysisCodec.encode(a)))
+        if(cacheResult && a.completed && a.candidates.isNotEmpty()) {
+            dao.putCache(CacheEntity(key,AnalysisCodec.encode(a)))
+        }
         return a
     }
     fun stop()=engine.stop()

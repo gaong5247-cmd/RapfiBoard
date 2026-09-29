@@ -102,7 +102,15 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
     fun analyze(play:Boolean=false,force:Boolean=false) {
         val s=state.value
         launchWork(if(play) "Rapfi가 생각 중" else "Analyzing position") {
-            val a=repository.analyze(s.position,budget(),s.engine,force) { update -> _state.update { it.copy(analysis=update) } }
+            // Playing a move must reflect the live engine state, never an old cached best move.
+            // It also must not write that transient move choice back into the analysis cache.
+            val a=repository.analyze(
+                s.position,
+                budget(),
+                s.engine,
+                force=force || play,
+                cacheResult=!play
+            ) { update -> _state.update { it.copy(analysis=update) } }
             _state.update { it.copy(analysis=a) }
             if(play) { val m=a.best ?: kotlin.error("엔진이 착수를 반환하지 않았어요."); undo.addLast(s.position); _state.update { it.copy(position=s.position.play(m),analysis=null) }; persist() }
         }

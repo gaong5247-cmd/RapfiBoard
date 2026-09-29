@@ -16,15 +16,33 @@ import app.rapfiboard.engine.*
 import java.util.Locale
 
 fun percent(value:Double?)=value?.let { "%.1f%%".format(Locale.US,it*100) } ?: "—"
+@Composable
+private fun PositionStatus(s:AppState,modifier:Modifier=Modifier) {
+    val winner=s.position.winner()
+    val last=s.position.stones.lastOrNull()?.move?.label(s.position.size)
+    Surface(modifier.fillMaxWidth(),tonalElevation=2.dp,shape=MaterialTheme.shapes.medium) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=9.dp),
+            horizontalArrangement=Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    if(winner>0) "${if(winner==1) "Black" else "White"} wins"
+                    else if(s.position.side==1) "● Black to move" else "○ White to move",
+                    fontWeight=FontWeight.SemiBold
+                )
+                if(last!=null) Text("Last $last",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text("MOVE ${s.position.stones.size}",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable fun BoardScreen(vm:AppViewModel,s:AppState) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide=maxWidth>=720.dp
         val board:@Composable ()->Unit={ Column {
-            Row(Modifier.fillMaxWidth().padding(bottom=10.dp),horizontalArrangement=Arrangement.SpaceBetween) {
-                Text(if(s.position.winner()>0) "${if(s.position.winner()==1) "Black" else "White"} wins" else if(s.position.side==1) "● Black to move" else "○ White to move",fontWeight=FontWeight.SemiBold)
-                Text("MOVE ${s.position.stones.size}",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)
-            }
             GomokuBoard(s.position,s.analysis?.candidates ?: emptyList(),s.preview.take(s.previewCount),s.analysis?.forbidden ?: emptySet(),s.numbers,s.stats,s.overlay,vm::place)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick=vm::undo,enabled=!s.busy) { Icon(Icons.Outlined.Undo,"되돌리기") }
@@ -65,8 +83,17 @@ fun percent(value:Double?)=value?.let { "%.1f%%".format(Locale.US,it*100) } ?: "
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) { OutlinedTextField(coord,{coord=it},label={Text("좌표 (예: H8)")},modifier=Modifier.weight(1f),singleLine=true); Button(onClick={ val x=coord.firstOrNull()?.uppercaseChar()?.minus('A'); val y=coord.drop(1).toIntOrNull(); if(x!=null && y!=null && x in 0 until s.position.size && y in 1..s.position.size) vm.place(Move(x,s.position.size-y)) else vm.reportError("A1부터 판 크기 안의 좌표를 입력해 주세요.") }) { Text("Place") } }
             }
         } }
-        if(wide) Row(Modifier.fillMaxSize().padding(20.dp),horizontalArrangement=Arrangement.spacedBy(24.dp)) { Column(Modifier.weight(1.15f).verticalScroll(rememberScrollState())) { board() }; Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { panel() } }
-        else Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) { board();panel() }
+        if(wide) Row(Modifier.fillMaxSize().padding(20.dp),horizontalArrangement=Arrangement.spacedBy(24.dp)) {
+            Column(Modifier.weight(1.15f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) { PositionStatus(s); board() }
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { panel() }
+        } else Column(Modifier.fillMaxSize()) {
+            // Keep move/turn information visible while the board tools and analysis panel scroll underneath it.
+            PositionStatus(s,Modifier.padding(start=16.dp,end=16.dp,top=8.dp))
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),
+                verticalArrangement=Arrangement.spacedBy(16.dp)
+            ) { board(); panel() }
+        }
     }
 }
 @OptIn(ExperimentalFoundationApi::class,ExperimentalLayoutApi::class)
