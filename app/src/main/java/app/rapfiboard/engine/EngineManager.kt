@@ -39,7 +39,8 @@ class RuntimeInstaller(private val context:Context) {
         val directory=File(root,"$mode/${rule.name.lowercase()}"); directory.mkdirs()
         val template=File(root,if(spec.classical) "classical.toml" else "nnue.toml").readText()
         val runtime=root.absolutePath.replace("\\","/")
-        var config=template.replace("@RUNTIME@",runtime)
+        // Use Rapfi's supported maximum depth for STOP-controlled analysis.
+        var config=template.replace("@RUNTIME@",runtime).replace("max_search_depth = 99","max_search_depth = 200")
 
         if(!spec.classical) {
             val selectedWeights=when(rule) {
