@@ -86,6 +86,15 @@ private fun BoardAction(
                     s.overlay,
                     vm::place
                 )
+                FilledTonalButton(
+                    onClick=vm::balanceOne,
+                    enabled=!s.busy && s.engine.rapfiExtensions,
+                    modifier=Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Outlined.Tune,contentDescription=null,modifier=Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Balance 1 · 균형수 찾아 바로 착수")
+                }
                 Surface(
                     Modifier.fillMaxWidth(),
                     tonalElevation=2.dp,
@@ -101,7 +110,7 @@ private fun BoardAction(
                             if(s.busy) "Stop" else "Analyze",
                             Modifier.weight(1f),
                             true,
-                            { if(s.busy) vm.stop() else vm.analyze() }
+                            { if(s.busy) vm.stopSearch() else vm.analyze() }
                         )
                         BoardAction(Icons.Outlined.PlayArrow,"Engine",Modifier.weight(1f),!s.busy,{vm.analyze(play=true)})
                         BoardAction(Icons.Outlined.Refresh,"New",Modifier.weight(1f),!s.busy,{vm.newGame()})
@@ -227,19 +236,31 @@ private fun BoardAction(
         LinearProgressIndicator(progress={ (black ?: .5).toFloat() },modifier=Modifier.fillMaxWidth().height(4.dp))
 
         Text("ANALYSIS SETTINGS",style=MaterialTheme.typography.labelMedium,fontWeight=FontWeight.Bold)
+        FilterChip(
+            selected=s.continuous,
+            onClick=vm::toggleContinuous,
+            enabled=!s.busy,
+            label={Text(if(s.continuous) "Until STOP · ON" else "Until STOP · OFF")}
+        )
+        Text(
+            if(s.continuous) "Analyze / Engine: STOP을 누를 때까지 탐색. Engine은 STOP 후 착수해요."
+            else "Analyze / Engine: 시간·Depth·노드 제한을 사용해요.",
+            style=MaterialTheme.typography.bodySmall,
+            color=MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Text("Top N (default 1)",style=MaterialTheme.typography.labelSmall)
         Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
             listOf(1,2,3,5,10).forEach { n ->
                 FilterChip(selected=s.config.multiPv==n,onClick={vm.config(s.config.copy(multiPv=n))},enabled=!s.busy,label={Text("$n")})
             }
         }
-        Text("Time limit",style=MaterialTheme.typography.labelSmall)
+        Text("Time limit · Balance 1에도 적용",style=MaterialTheme.typography.labelSmall)
         Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-            listOf(1000L,5000L,10000L,30000L,60000L).forEach { ms ->
-                FilterChip(selected=s.config.timeMs==ms,onClick={vm.config(s.config.copy(timeMs=ms))},enabled=!s.busy,label={Text("${ms/1000}s")})
+            listOf(1500L,5000L,10000L,30000L,60000L).forEach { ms ->
+                FilterChip(selected=s.config.timeMs==ms,onClick={vm.config(s.config.copy(timeMs=ms))},enabled=!s.busy,label={Text(if(ms==1500L) "1.5s" else "${ms/1000}s")})
             }
         }
-        Text("Max depth: ${s.config.depth}",style=MaterialTheme.typography.labelSmall)
+        Text("Max depth: ${s.config.depth} · Balance 1 / 유한 분석",style=MaterialTheme.typography.labelSmall)
         Slider(value=s.config.depth.toFloat(),onValueChange={vm.config(s.config.copy(depth=it.toInt().coerceIn(1,128)))},valueRange=1f..128f,enabled=!s.busy)
         val equalMoves=if(candidates.isEmpty()) emptyList() else {
             val leader=candidates.first()
