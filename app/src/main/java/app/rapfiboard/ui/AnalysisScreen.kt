@@ -226,6 +226,30 @@ private fun BoardAction(
         }
         LinearProgressIndicator(progress={ (black ?: .5).toFloat() },modifier=Modifier.fillMaxWidth().height(4.dp))
 
+        Text("ANALYSIS SETTINGS",style=MaterialTheme.typography.labelMedium,fontWeight=FontWeight.Bold)
+        Text("Top N (default 1)",style=MaterialTheme.typography.labelSmall)
+        Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            listOf(1,2,3,5,10).forEach { n ->
+                FilterChip(selected=s.config.multiPv==n,onClick={vm.config(s.config.copy(multiPv=n))},enabled=!s.busy,label={Text("$n")})
+            }
+        }
+        Text("Time limit",style=MaterialTheme.typography.labelSmall)
+        Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            listOf(1000L,5000L,10000L,30000L,60000L).forEach { ms ->
+                FilterChip(selected=s.config.timeMs==ms,onClick={vm.config(s.config.copy(timeMs=ms))},enabled=!s.busy,label={Text("${ms/1000}s")})
+            }
+        }
+        Text("Max depth: ${s.config.depth}",style=MaterialTheme.typography.labelSmall)
+        Slider(value=s.config.depth.toFloat(),onValueChange={vm.config(s.config.copy(depth=it.toInt().coerceIn(1,128)))},valueRange=1f..128f,enabled=!s.busy)
+        val equalMoves=if(candidates.isEmpty()) emptyList() else {
+            val leader=candidates.first()
+            candidates.filter { it.depth>=leader.depth && it.score.raw==leader.score.raw }
+        }
+        Text("Equal-score moves (same reported depth): ${equalMoves.size}",style=MaterialTheme.typography.labelSmall)
+        if(equalMoves.isNotEmpty()) Text(equalMoves.joinToString(" · ") { it.pv.firstOrNull()?.label(s.position.size) ?: "—" },style=MaterialTheme.typography.bodySmall)
+        Text("Equal scores are provisional, not proof of a theoretical draw.",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+
+
         if(best==null) {
             Text("Analyze를 누르면 후보수와 PV가 여기에 바로 붙어요.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
