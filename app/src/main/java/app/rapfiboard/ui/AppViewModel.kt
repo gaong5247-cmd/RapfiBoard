@@ -13,7 +13,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
 
-data class AppState(val position:Position=Position(),val tab:Int=0,val busy:Boolean=false,val status:String="Ready to explore",val error:String?=null,val analysis:Analysis?=null,val preview:List<Move> = emptyList(),val previewCount:Int=0,val engine:EngineSpec=EngineSpec(),val config:AnalysisConfig=AnalysisConfig(),val review:List<ReviewMove> = emptyList(),val reviewIndex:Int=0,val reviewMode:Int=1,val stats:List<MoveStat> = emptyList(),val editor:Int=-1,val overlay:Int=3,val numbers:Boolean=true,val dark:Boolean=true,val training:Boolean=false,val hint:Int=0,val warm:Boolean=false,val networks:List<String> = emptyList(),val reviewGame:Position?=null,val hasSavedReview:Boolean=false)
+data class AppState(val position:Position=Position(),val tab:Int=0,val busy:Boolean=false,val status:String="Ready to explore",val error:String?=null,val analysis:Analysis?=null,val preview:List<Move> = emptyList(),val previewCount:Int=0,val engine:EngineSpec=EngineSpec(),val config:AnalysisConfig=AnalysisConfig(),val review:List<ReviewMove> = emptyList(),val reviewIndex:Int=0,val reviewMode:Int=1,val stats:List<MoveStat> = emptyList(),val editor:Int=-1,val overlay:Int=3,val numbers:Boolean=true,val dark:Boolean=true,val training:Boolean=false,val hint:Int=0,val warm:Boolean=false,val networks:List<String> = emptyList(),val reviewGame:Position?=null,val hasSavedReview:Boolean=false,val continuous:Boolean=true)
 class AppViewModel(application:Application):AndroidViewModel(application) {
     private val prefs=application.getSharedPreferences("session",0)
     private val engineManager=EngineManager(application)
@@ -101,20 +101,51 @@ class AppViewModel(application:Application):AndroidViewModel(application) {
     }
     fun analyze(play:Boolean=false,force:Boolean=false) {
         val s=state.value
-        launchWork(if(play) "Rapfi가 생각 중" else "Analyzing position") {
-            // Playing a move must reflect the live engine state, never an old cached best move.
-            // It also must not write that transient move choice back into the analysis cache.
+        launchWork(if(play) "Rapfi 탐색 중 · STOP 후 착수" else "Rapfi 분석 중 · STOP으로 종료") {
+            // Live analysis bypasses stale cache. In continuous mode, STOP returns the final move.
+            val config=budget().copy(unlimited=s.continuous,mode=AnalysisMode.NORMAL)
             val a=repository.analyze(
                 s.position,
-                budget(),
+                config,
                 s.engine,
-                force=force || play,
-                cacheResult=!play
+                force=force || play || config.unlimited,
+                cacheResult=!play && !config.unlimited
             ) { update -> _state.update { it.copy(analysis=update) } }
             _state.update { it.copy(analysis=a) }
-            if(play) { val m=a.best ?: kotlin.error("엔진이 착수를 반환하지 않았어요."); undo.addLast(s.position); _state.update { it.copy(position=s.position.play(m),analysis=null) }; persist() }
+            if(play) {
+                val m=a.best ?: kotlin.error("엔진이 착수를 반환하지 않았어요.")
+                undo.addLast(s.position)
+                _state.update { it.copy(position=s.position.play(m),analysis=null,preview=emptyList(),previewCount=0) }
+                persist()
+            }
         }
     }
+    /** Balance 1 searches for a zero-value move and plays it automatically. */
+    fun balanceOne() {
+        val s=state.value
+        if(!s.engine.rapfiExtensions) { reportError("Balance 1은 Rapfi YixinBoard 확장 엔진이 필요해요."); return }
+        launchWork("Balance 1 · 균형수 탐색 중") {
+            // Balance must be finite to place a stone without requiring a second button press.
+            val config=budget().copy(unlimited=false,mode=AnalysisMode.BALANCE_ONE,multiPv=1)
+            val a=engineManager.analyze(s.position,config,s.engine) { update ->
+                _state.update { it.copy(analysis=update) }
+            }
+            val m=a.best ?: kotlin.error("Balance 1이 착수를 반환하지 않았어요.")
+            check(m !in a.forbidden) { "Rapfi가 금수로 판정한 수예요." }
+            undo.addLast(s.position)
+            _state.update { it.copy(position=s.position.play(m),analysis=null,preview=emptyList(),previewCount=0,status="Balance 1 착수 완료 · ${m.label(s.position.size)}") }
+            persist()
+        }
+    }
+    fun toggleContinuous() { if(!state.value.busy) _state.update { it.copy(continuous=!it.continuous) } }
+    /** User-visible STOP lets the engine report its searched best move instead of killing it. */
+    fun stopSearch() {
+        if(state.value.busy) {
+            engineManager.requestStop()
+            _state.update { it.copy(status="STOP 요청됨 · 탐색 결과 정리 중") }
+        }
+    }
+    /** Hard stop is still needed when leaving a position or cancelling a different task. */
     fun stop() { work?.cancel(); engineManager.stop(); _state.update { it.copy(busy=false) } }
     fun restart() { stop(); _state.update { it.copy(status="엔진 재시작 준비 완료",analysis=null) } }
     fun chooseEngine(classical:Boolean) { stop(); _state.update { it.copy(engine=EngineSpec(classical=classical),analysis=null) } }
