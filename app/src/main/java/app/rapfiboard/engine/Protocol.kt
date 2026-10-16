@@ -53,7 +53,7 @@ class ProtocolParser(private val size: Int) {
 }
 
 data class EngineSpec(val id:String="rapfi", val name:String="Rapfi", val classical:Boolean=false, val network:String="default", val executable:String?=null, val rapfiExtensions:Boolean=true)
-data class AnalysisConfig(val timeMs:Long=1500, val nodes:Long=200000, val depth:Int=32, val multiPv:Int=3, val threads:Int=2, val hashMb:Int=32) {
+data class AnalysisConfig(val timeMs:Long=1500, val nodes:Long=200000, val depth:Int=32, val multiPv:Int=1, val threads:Int=2, val hashMb:Int=32) {
     init { require(timeMs in 100..120000 && nodes>=0 && depth in 1..128 && multiPv in 1..10 && threads in 1..16 && hashMb in 4..256) }
 }
 data class Analysis(val positionKey:String, val engine:EngineSpec, val config:AnalysisConfig, val candidates:List<Candidate>, val best:Move?, val forbidden:Set<Move> = emptySet(), val cached:Boolean=false, val completed:Boolean=true)
