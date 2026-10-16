@@ -63,6 +63,17 @@ fun AnalysisConfig.rapfiSearchCommand():String = when(mode) {
     AnalysisMode.BALANCE_ONE -> "YXBALANCEONE 0"
 }
 
+/** Unlimited mode disables clock/node exits; Rapfi's intrinsic max search depth still applies. */
+fun AnalysisConfig.timeControlCommands():List<String> = listOf(
+    "INFO TIMEOUT_TURN ${if(unlimited) 0 else timeMs}",
+    "INFO TIMEOUT_MATCH ${if(unlimited) 0 else 2147483647}",
+    "INFO TIME_LEFT 2147483647"
+)
+fun AnalysisConfig.rapfiLimitCommands():List<String> = listOf(
+    "INFO MAX_DEPTH ${if(unlimited) 200 else depth}",
+    "INFO MAX_NODE ${if(unlimited) 0 else nodes}"
+)
+
 data class Analysis(val positionKey:String, val engine:EngineSpec, val config:AnalysisConfig, val candidates:List<Candidate>, val best:Move?, val forbidden:Set<Move> = emptySet(), val cached:Boolean=false, val completed:Boolean=true)
 interface GomokuEngine {
     suspend fun analyze(position:Position, config:AnalysisConfig, spec:EngineSpec, onUpdate:(Analysis)->Unit = {}):Analysis
