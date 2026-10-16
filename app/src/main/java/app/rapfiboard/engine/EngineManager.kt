@@ -165,7 +165,7 @@ class EngineManager(private val context:Context):GomokuEngine {
             require(spec.classical || position.rule==Rule.FREESTYLE || position.size==15) { "기본 Standard/Renju NNUE는 15×15 전용이에요." }
             require(spec.network=="default" || position.rule==Rule.FREESTYLE) { "가져온 network는 Freestyle에서 선택해 주세요." }
             require(config.mode==AnalysisMode.NORMAL || spec.rapfiExtensions) { "Balance 1에는 YixinBoard 확장 지원 Rapfi 엔진이 필요해요." }
-            stopRequested=false
+            // Preserve an early STOP pressed while the coroutine was starting.
             stopSignalSent=false
             searching=false
             try {
