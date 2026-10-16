@@ -8,6 +8,19 @@ import org.junit.Assert.*
 
 class CoreTests {
     private fun candidate(p:Double=.7,m:Move=Move(7,7),depth:Int=16)=Candidate(0,Score("200"),p,null,depth,10000,5000,2000,listOf(m))
+    @Test fun balanceOneUsesRapfiYixinCommand() {
+        assertEquals("YXBALANCEONE 0",AnalysisConfig(mode=AnalysisMode.BALANCE_ONE).rapfiSearchCommand())
+        assertEquals("YXNBEST 1",AnalysisConfig().rapfiSearchCommand())
+        assertEquals(EngineEvent.Best(Move(7,7)),ProtocolParser(15).parse("7,7"))
+    }
+    @Test fun stopDrivenSearchHasNoClockOrNodeLimit() {
+        val c=AnalysisConfig(unlimited=true)
+        assertEquals(listOf("INFO TIMEOUT_TURN 0","INFO TIMEOUT_MATCH 0","INFO TIME_LEFT 2147483647"),c.timeControlCommands())
+        assertEquals(listOf("INFO MAX_DEPTH 200","INFO MAX_NODE 0"),c.rapfiLimitCommands())
+        val finite=AnalysisConfig(timeMs=5000,nodes=30000,depth=48)
+        assertEquals("INFO TIMEOUT_TURN 5000",finite.timeControlCommands().first())
+        assertEquals(listOf("INFO MAX_DEPTH 48","INFO MAX_NODE 30000"),finite.rapfiLimitCommands())
+    }
     @Test fun coordinatesAreZeroBased() { assertEquals("H8",Move(7,7).label());assertEquals("A15",Move(0,0).label());assertEquals(Move(14,14),Move.parse("14,14")) }
     @Test fun rejectsInvalidCoordinates() { listOf("15,0","-1,-1","2","7,x","0,999").forEach { assertNull(Move.parse(it)) } }
     @Test fun serializationRoundTrip() { val p=Position().play(Move(7,7)).play(Move(8,8));assertEquals(p,Position.decode(p.encode())) }
