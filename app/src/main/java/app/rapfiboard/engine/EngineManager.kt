@@ -173,14 +173,11 @@ class EngineManager(private val context:Context):GomokuEngine {
                 val parser=ProtocolParser(position.size)
                 send("INFO RULE ${position.rule.protocol}"); send("START ${position.size}")
                 withTimeout(5000) { while(true) { val line=next(); if(line=="OK") break; if(line.startsWith("ERROR")) error(line) } }
-                // No wall clock or node budget for interactive searches: only YXSTOP finishes them.
-                send("INFO TIMEOUT_TURN ${if(config.unlimited) 0 else config.timeMs}")
-                send("INFO TIMEOUT_MATCH ${if(config.unlimited) 0 else 2147483647}")
-                send("INFO TIME_LEFT 2147483647")
+                // No wall clock or node budget for STOP-controlled interactive searches.
+                config.timeControlCommands().forEach(::send)
                 if(spec.rapfiExtensions) {
                     send("INFO HASH_SIZE ${config.hashMb*1024}"); send("INFO THREAD_NUM ${config.threads}")
-                    send("INFO MAX_DEPTH ${if(config.unlimited) 200 else config.depth}")
-                    send("INFO MAX_NODE ${if(config.unlimited) 0 else config.nodes}")
+                    config.rapfiLimitCommands().forEach(::send)
                     send("INFO SHOW_DETAIL 3"); send("INFO USEDATABASE 0")
                 }
                 send(if(spec.rapfiExtensions) "YXBOARD" else "BOARD")
